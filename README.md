@@ -35,6 +35,15 @@ another policy evaluating the same input. Shared helpers (flattening containers 
 pod specs across Pod/Deployment/StatefulSet/DaemonSet/Job/CronJob shapes) live once in
 `policy/common.rego` under `package common` and get imported where needed.
 
+## Prerequisites
+
+Install the two CLIs this repo uses (macOS via Homebrew shown; Linux/CI installs the
+same pinned binaries directly - see `.github/workflows/ci.yml`):
+
+```bash
+brew install opa conftest
+```
+
 ## Usage
 
 ```bash
@@ -46,7 +55,35 @@ conftest test --all-namespaces path/to/manifest.yaml --policy policy
 ```
 
 `examples/fail/` holds manifests that should trip the guardrails; `examples/pass/`
-holds manifests that should pass cleanly. Both are exercised in CI on every push.
+holds manifests that should pass cleanly. Try them directly:
+
+```bash
+# Expect 8 failures - every intentionally-broken field in one manifest
+conftest test --all-namespaces examples/fail/*.yaml --policy policy
+
+# Expect a clean pass
+conftest test --all-namespaces examples/pass/*.yaml --policy policy
+```
+
+Both are also exercised in CI on every push and pull request.
+
+## Project structure
+
+```
+policy/
+  common.rego               # package common - shared helpers (all_containers, all_pod_specs)
+  deny_privileged.rego       # package policies.privileged
+  deny_privilege_escalation.rego
+  deny_host_namespaces.rego
+  require_non_root.rego
+  require_resource_limits.rego
+  deny_static_gcp_key.rego
+  *_test.rego                # opa test unit tests, one file per policy
+examples/
+  fail/                      # manifests that must trip at least one policy
+  pass/                      # manifests that must pass every policy
+.github/workflows/ci.yml      # installs pinned opa/conftest, runs both layers above
+```
 
 ## CI
 
