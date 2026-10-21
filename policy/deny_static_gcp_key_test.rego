@@ -21,10 +21,38 @@ test_gcp_key_secret_volume_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+test_service_account_key_named_volume_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "billing-service-account-key"}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
 test_service_account_without_workload_identity_denied if {
 	mock_input := {
 		"kind": "ServiceAccount",
 		"metadata": {"name": "app-sa", "annotations": {}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_empty_annotation_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": ""}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_malformed_annotation_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "not-an-email"}},
 	}
 	count(deny) > 0 with input as mock_input
 }

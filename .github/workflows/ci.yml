@@ -17,9 +17,10 @@ jobs:
 
       - name: Install OPA
         run: |
-          curl -fsSL -o /usr/local/bin/opa \
+          curl -fsSL -o opa \
             "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
-          chmod +x /usr/local/bin/opa
+          chmod +x opa
+          sudo mv opa /usr/local/bin/opa
 
       - name: Install conftest
         run: |
@@ -32,12 +33,16 @@ jobs:
       - name: Unit test every policy (opa test)
         run: opa test policy/ -v
 
-      - name: Known-bad manifests must fail the gate
+      - name: Every known-bad manifest must fail the gate, individually
         run: |
-          if conftest test --all-namespaces examples/fail/*.yaml --policy policy; then
-            echo "::error::examples/fail manifests were expected to violate policy but passed"
-            exit 1
-          fi
+          status=0
+          for f in examples/fail/*.yaml; do
+            if conftest test --all-namespaces "$f" --policy policy; then
+              echo "::error::$f was expected to violate policy but passed"
+              status=1
+            fi
+          done
+          exit $status
 
       - name: Known-good manifests must pass the gate
         run: conftest test --all-namespaces examples/pass/*.yaml --policy policy

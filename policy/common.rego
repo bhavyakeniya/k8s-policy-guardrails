@@ -27,6 +27,22 @@ all_containers contains c if {
 	c := input.spec.jobTemplate.spec.template.spec.containers[_]
 }
 
+all_containers contains c if {
+	c := input.spec.ephemeralContainers[_]
+}
+
+all_containers contains c if {
+	c := input.spec.template.spec.ephemeralContainers[_]
+}
+
+# True when any pod-shaped spec on this manifest sets runAsNonRoot at the
+# pod level. Safe to check across all shapes at once: a real manifest only
+# ever populates one of Pod/.template.spec/.jobTemplate.spec.template.spec.
+pod_runs_as_non_root if {
+	some s in all_pod_specs
+	s.securityContext.runAsNonRoot == true
+}
+
 all_pod_specs contains s if {
 	s := input.spec
 	is_pod_shaped(s)

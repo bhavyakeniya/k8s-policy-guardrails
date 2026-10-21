@@ -41,3 +41,27 @@ test_container_override_to_root_denied if {
 	}
 	count(deny) > 0 with input as mock_input
 }
+
+test_init_container_root_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app", "securityContext": {"runAsNonRoot": true}}],
+			"initContainers": [{"name": "init-app", "securityContext": {}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_ephemeral_container_root_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app", "securityContext": {"runAsNonRoot": true}}],
+			"ephemeralContainers": [{"name": "debug", "securityContext": {}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
