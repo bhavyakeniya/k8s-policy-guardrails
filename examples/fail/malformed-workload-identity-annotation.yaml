@@ -3,3 +3,5 @@ kind: ServiceAccount
 metadata:
   name: batch-job-sa
   namespace: data-platform
+  annotations:
+    iam.gke.io/gcp-service-account: not-a-valid-email

@@ -2,9 +2,9 @@ package policies.host_namespaces
 
 import data.common
 
-# CIS Kubernetes Benchmark 5.2.4 - hostNetwork
-# CIS Kubernetes Benchmark 5.2.2 - hostPID
-# CIS Kubernetes Benchmark 5.2.3 - hostIPC
+# CIS Kubernetes Benchmark, Pod Security Policies section ("prevent host
+# namespace sharing": hostNetwork/hostPID/hostIPC) - see deny_privileged.rego
+# for why no specific control number is cited.
 
 deny contains msg if {
 	spec := common.all_pod_specs[_]

@@ -28,6 +28,10 @@ all_containers contains c if {
 }
 
 all_containers contains c if {
+	c := input.spec.jobTemplate.spec.template.spec.initContainers[_]
+}
+
+all_containers contains c if {
 	c := input.spec.ephemeralContainers[_]
 }
 

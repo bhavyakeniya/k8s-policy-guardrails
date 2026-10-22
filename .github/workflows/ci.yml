@@ -5,44 +5,76 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   OPA_VERSION: "1.21.1"
+  OPA_SHA256: "668506eb17a2eaa1fce6cc0d1f42ef85125d4ac5bda5fc74d1152d0c77145031"
   CONFTEST_VERSION: "0.71.1"
+  CONFTEST_SHA256: "c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985"
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install OPA
+      - name: Install OPA (checksum-verified)
         run: |
           curl -fsSL -o opa \
             "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
+          echo "${OPA_SHA256}  opa" | sha256sum -c -
           chmod +x opa
           sudo mv opa /usr/local/bin/opa
 
-      - name: Install conftest
+      - name: Install conftest (checksum-verified)
         run: |
           curl -fsSL -o conftest.tar.gz \
             "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
           tar -xzf conftest.tar.gz conftest
           chmod +x conftest
           sudo mv conftest /usr/local/bin/conftest
 
-      - name: Unit test every policy (opa test)
-        run: opa test policy/ -v
+      - name: opa fmt check
+        run: opa fmt --fail policy/ -d
 
-      - name: Every known-bad manifest must fail the gate, individually
+      - name: opa check --strict
+        run: opa check --strict policy/
+
+      - name: Unit test every policy, enforce coverage on production files only
         run: |
-          status=0
-          for f in examples/fail/*.yaml; do
-            if conftest test --all-namespaces "$f" --policy policy; then
-              echo "::error::$f was expected to violate policy but passed"
-              status=1
-            fi
-          done
-          exit $status
+          opa test policy/ -v
+          opa test policy/ --coverage --format json > coverage.json
+          python3 -c "
+          import json
+          d = json.load(open('coverage.json'))
+          # The blended top-level 'coverage' field includes test files in
+          # the denominator, and a test file is ~100% covered by
+          # definition just by running - that blend is exactly what made
+          # common.rego's real 68.97% look like an overall 96.95% before
+          # the CronJob init-container gap in that one file got fixed.
+          # Measuring production files only is the honest version of this
+          # gate.
+          covered = sum(len(c.get('covered', [])) for f, c in d['files'].items() if not f.endswith('_test.rego'))
+          total = sum(len(c.get('covered', [])) + len(c.get('not_covered', [])) for f, c in d['files'].items() if not f.endswith('_test.rego'))
+          pct = 100 * covered / total if total else 100
+          print(f'production-file coverage: {pct:.2f}% ({covered}/{total})')
+          assert pct >= 95, f'production-file coverage {pct:.2f}% is below the 95% threshold'
+          "
 
-      - name: Known-good manifests must pass the gate
-        run: conftest test --all-namespaces examples/pass/*.yaml --policy policy
+      - name: Assert exact per-policy fixture coverage
+        run: |
+          python3 scripts/assert_policy_coverage.py \
+            --policy-dir policy \
+            --map examples/fail/privileged.yaml=policies.privileged \
+            --map examples/fail/privilege-escalation.yaml=policies.privilege_escalation \
+            --map examples/fail/host-namespaces.yaml=policies.host_namespaces \
+            --map examples/fail/non-root.yaml=policies.non_root \
+            --map examples/fail/resource-limits.yaml=policies.resource_limits \
+            --map examples/fail/static-gcp-key.yaml=policies.static_gcp_key \
+            --map examples/fail/malformed-workload-identity-annotation.yaml=policies.static_gcp_key \
+            --map examples/fail/list-input.yaml=policies.reject_list_input \
+            --pass-glob 'examples/pass/*.yaml'

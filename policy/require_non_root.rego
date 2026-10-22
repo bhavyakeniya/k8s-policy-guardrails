@@ -2,7 +2,9 @@ package policies.non_root
 
 import data.common
 
-# CIS Kubernetes Benchmark 5.2.6 - Minimize the admission of root containers
+# CIS Kubernetes Benchmark, Pod Security Policies section ("minimize the
+# admission of root containers") - see deny_privileged.rego for why no
+# specific control number is cited.
 # Pod-level runAsNonRoot satisfies this for every container (including init
 # and ephemeral containers) that doesn't override it, so a container only
 # fails when neither it nor the pod spec sets runAsNonRoot: true.

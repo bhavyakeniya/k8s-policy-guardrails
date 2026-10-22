@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: privilege-escalation-example
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: privilege-escalation-example
+  template:
+    metadata:
+      labels:
+        app: privilege-escalation-example
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: example.com/app:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: true
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

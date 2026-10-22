@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: host-namespace-example
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: host-namespace-example
+  template:
+    metadata:
+      labels:
+        app: host-namespace-example
+    spec:
+      hostNetwork: true
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: example.com/app:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

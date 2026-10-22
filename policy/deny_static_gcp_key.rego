@@ -35,13 +35,27 @@ deny contains msg if {
 	msg := sprintf("%s/%s: volume %q mounts a secret matching %q; use Workload Identity Federation instead of a static key", [input.kind, common.name, volume.name, pattern])
 }
 
+# deny_malformed_workload_identity_annotation, not
+# deny_missing_workload_identity_annotation - deliberately. This used to
+# deny every ServiceAccount that lacked the annotation at all, which was
+# wrong on three counts, confirmed against GKE's own docs rather than
+# assumed: (1) not every ServiceAccount needs GCP API access in the first
+# place - most don't; (2) GKE also supports granting IAM permissions
+# directly to a Kubernetes ServiceAccount's principal identifier, which
+# uses no iam.gke.io annotation at all; (3) even where the annotation IS
+# the right mechanism (GCP service-account impersonation), the annotation
+# alone doesn't prove Workload Identity is wired up - the IAM-side
+# workloadIdentityUser binding on the GCP service account also has to
+# exist, and that lives in Terraform/gcloud state this policy can never
+# see from a Kubernetes manifest alone. Denying on absence punished every
+# unrelated ServiceAccount and forced a self-service
+# policy.guardrails/exempt label with zero governance to work around it.
+# What IS still a real, visible-from-the-manifest mistake: a ServiceAccount
+# that HAS the annotation but with a malformed value - that's unambiguous
+# regardless of which Workload Identity pattern is in use.
 deny contains msg if {
 	input.kind == "ServiceAccount"
-	not input.metadata.labels["policy.guardrails/exempt"] == "true"
-	not has_valid_workload_identity_annotation
-	msg := sprintf("ServiceAccount/%s: missing or malformed iam.gke.io/gcp-service-account annotation (expected a *.iam.gserviceaccount.com email); either bind it to Workload Identity or label it policy.guardrails/exempt: \"true\"", [common.name])
-}
-
-has_valid_workload_identity_annotation if {
-	regex.match(`^[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com$`, input.metadata.annotations["iam.gke.io/gcp-service-account"])
+	annotation := input.metadata.annotations["iam.gke.io/gcp-service-account"]
+	not regex.match(`^[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com$`, annotation)
+	msg := sprintf("ServiceAccount/%s: iam.gke.io/gcp-service-account annotation %q is not a valid *.iam.gserviceaccount.com email - note that this check cannot confirm Workload Identity is actually wired up end-to-end (the IAM-side binding lives outside this manifest), only that the annotation, if present, is well-formed", [common.name, annotation])
 }

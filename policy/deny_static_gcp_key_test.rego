@@ -33,12 +33,24 @@ test_service_account_key_named_volume_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
-test_service_account_without_workload_identity_denied if {
+test_service_account_without_annotation_at_all_is_allowed if {
+	# Not every ServiceAccount needs GCP access, and GKE's newer
+	# direct-principal binding doesn't use this annotation at all - absence
+	# alone is not evidence of a mistake. Confirmed as a real bug in the
+	# old behavior: this used to deny every unrelated ServiceAccount.
 	mock_input := {
 		"kind": "ServiceAccount",
 		"metadata": {"name": "app-sa", "annotations": {}},
 	}
-	count(deny) > 0 with input as mock_input
+	count(deny) == 0 with input as mock_input
+}
+
+test_service_account_with_no_annotations_key_at_all_is_allowed if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa"},
+	}
+	count(deny) == 0 with input as mock_input
 }
 
 test_service_account_empty_annotation_denied if {
@@ -61,14 +73,6 @@ test_service_account_with_workload_identity_allowed if {
 	mock_input := {
 		"kind": "ServiceAccount",
 		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "app-sa@project.iam.gserviceaccount.com"}},
-	}
-	count(deny) == 0 with input as mock_input
-}
-
-test_service_account_exempt_label_allowed if {
-	mock_input := {
-		"kind": "ServiceAccount",
-		"metadata": {"name": "default", "annotations": {}, "labels": {"policy.guardrails/exempt": "true"}},
 	}
 	count(deny) == 0 with input as mock_input
 }

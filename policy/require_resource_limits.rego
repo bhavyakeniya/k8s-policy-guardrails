@@ -2,9 +2,13 @@ package policies.resource_limits
 
 import data.common
 
-# Aligned with the Kubernetes Pod Security Standards / resource-quota
-# guidance rather than a single CIS control: every container must declare
-# both CPU and memory limits so a bad deploy can't starve its node.
+# Resource limits are NOT a Kubernetes Pod Security Standards control -
+# checked against the official PSS baseline/restricted profile lists rather
+# than assumed, and they cover host namespaces, privileged, capabilities,
+# non-root, privilege escalation, seccomp and volume types, not resource
+# quotas. This aligns with the separate Kubernetes security checklist's
+# resource-management guidance instead: every container must declare both
+# CPU and memory limits so a bad deploy can't starve its node.
 
 deny contains msg if {
 	container := common.all_containers[_]

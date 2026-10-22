@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: static-key-example
+  namespace: data-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: static-key-example
+  template:
+    metadata:
+      labels:
+        app: static-key-example
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: example.com/app:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          env:
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/key.json

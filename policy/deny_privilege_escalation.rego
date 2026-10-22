@@ -2,8 +2,9 @@ package policies.privilege_escalation
 
 import data.common
 
-# CIS Kubernetes Benchmark 5.2.5 - Minimize the admission of containers with
-# allowPrivilegeEscalation
+# CIS Kubernetes Benchmark, Pod Security Policies section ("minimize the
+# admission of containers with allowPrivilegeEscalation") - see
+# deny_privileged.rego for why no specific control number is cited.
 
 deny contains msg if {
 	container := common.all_containers[_]
