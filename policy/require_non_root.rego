@@ -10,7 +10,7 @@ import data.common
 # fails when neither it nor the pod spec sets runAsNonRoot: true.
 
 deny contains msg if {
-	container := common.all_containers[_]
+	container := common.security_relevant_containers[_]
 	not container_is_non_root(container)
 	msg := sprintf("%s/%s: container %q must run as non-root (set runAsNonRoot: true)", [input.kind, common.name, container.name])
 }

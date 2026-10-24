@@ -58,8 +58,15 @@ jobs:
           # the CronJob init-container gap in that one file got fixed.
           # Measuring production files only is the honest version of this
           # gate.
-          covered = sum(len(c.get('covered', [])) for f, c in d['files'].items() if not f.endswith('_test.rego'))
-          total = sum(len(c.get('covered', [])) + len(c.get('not_covered', [])) for f, c in d['files'].items() if not f.endswith('_test.rego'))
+          #
+          # covered/not_covered are arrays of EXPRESSION ranges (each with
+          # a row/col start and end) - a single line can hold several
+          # expressions, so len() on those arrays counts expression
+          # regions, not lines. covered_lines/not_covered_lines are the
+          # actual integer line counts OPA computes; confirmed by diffing
+          # both against a deliberately-uncovered file before fixing this.
+          covered = sum(c.get('covered_lines', 0) for f, c in d['files'].items() if not f.endswith('_test.rego'))
+          total = sum(c.get('covered_lines', 0) + c.get('not_covered_lines', 0) for f, c in d['files'].items() if not f.endswith('_test.rego'))
           pct = 100 * covered / total if total else 100
           print(f'production-file coverage: {pct:.2f}% ({covered}/{total})')
           assert pct >= 95, f'production-file coverage {pct:.2f}% is below the 95% threshold'

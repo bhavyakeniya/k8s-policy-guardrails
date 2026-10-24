@@ -6,11 +6,11 @@ Policy-as-code guardrails for Kubernetes manifests, written in [Rego](https://ww
 and enforced with [Open Policy Agent](https://www.openpolicyagent.org/) / [conftest](https://www.conftest.dev/).
 Every policy ships with unit tests and its own isolated fail fixture, asserted against
 the exact policy namespace it must trip (not just "the gate failed somehow"), and a
-GitHub Actions workflow runs all of it on every push and pull request.
+GitHub Actions workflow runs all of it on every push to `main` and every pull request.
 
 This is a from-scratch demo repo, not a copy of any employer's codebase. The patterns
-(admission-style guardrails, Workload Identity enforcement instead of static keys, a
-CI gate that runs security checks before merge) mirror real platform-engineering work
+(admission-style guardrails, static-key detection instead of proving Workload Identity,
+a CI gate that runs security checks before merge) mirror real platform-engineering work
 I've shipped, reimplemented here generically with synthetic manifests.
 
 ## What it checks
@@ -18,14 +18,15 @@ I've shipped, reimplemented here generically with synthetic manifests.
 | Policy | File | Standard |
 |---|---|---|
 | Deny privileged containers | `policy/deny_privileged.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
-| Deny `allowPrivilegeEscalation` | `policy/deny_privilege_escalation.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
+| Deny `allowPrivilegeEscalation` | `policy/deny_privilege_escalation.rego` | CIS Kubernetes Benchmark, Pod Security Policies section - **Linux-only**, skipped for `spec.os.name: windows`, see note below |
 | Deny `hostNetwork` / `hostPID` / `hostIPC` | `policy/deny_host_namespaces.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require non-root containers | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
-| Require CPU/memory limits | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) - **not** a Pod Security Standards control, see note below |
+| Require CPU/memory limits | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) - **not** a Pod Security Standards control, and **not applied to ephemeral containers** (Kubernetes forbids `resources` on them entirely), see notes below |
 | Malformed Workload Identity annotation | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene); does not and cannot prove Workload Identity is fully wired up, see note below |
-| Reject `kind: List` input | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
+| Reject collection-shaped input (`List`, `PodList`, `DeploymentList`, ...) | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
 
-Two accuracy notes, both added after an external review caught them:
+Accuracy notes, all added after external reviews caught them - each one was reproduced
+directly before being fixed, not just taken on the reviewer's word:
 
 - **Specific CIS control numbers are deliberately not cited.** Two different sources I
   checked gave contradictory section numbers for the same checks across CIS Kubernetes
@@ -46,6 +47,42 @@ Two accuracy notes, both added after an external review caught them:
   annotation is the right mechanism, the IAM-side `workloadIdentityUser` binding lives
   in Terraform/gcloud state this policy can never see from a manifest alone. It now
   only denies a *malformed* annotation value, not a missing one.
+- **The annotation-format check now implements Google's actual service-account-ID
+  grammar** (`[a-z]([-a-z0-9]*[a-z0-9])?`, 6-30 characters, for both the account and
+  project components), not just "has an `@` and the right domain suffix and no
+  whitespace." The old regex accepted `!!!@???.iam.gserviceaccount.com`; confirmed
+  directly before fixing. It deliberately does not accept the legacy default-compute-
+  service-account format (`N-compute@developer.gserviceaccount.com`) - Google's own
+  guidance recommends a dedicated service account for Workload Identity instead.
+- **`name` falls back through `metadata.name` -> `metadata.generateName` -> a constant
+  placeholder.** `generateName` without `name` is valid, server-generated-name
+  Kubernetes. Confirmed directly: a Pod using `generateName` with `hostNetwork`,
+  `privileged`, escalation, and a static credential passed every policy clean (12/12)
+  before this fallback existed - every violation message needed `name`, which was
+  undefined, which made the whole rule undefined.
+- **Collection rejection covers every `*List` kind, not just the bare `List`.**
+  Kubernetes has dozens of resource-specific collection kinds (`PodList`,
+  `DeploymentList`, `ServiceList`, ...). Confirmed directly: a privileged,
+  host-networked Pod wrapped in `kind: PodList` also passed clean under the old
+  `input.kind == "List"` check. Now checks `endswith(input.kind, "List")` together
+  with an `items` array, so a kind that merely happens to end in "List" without being
+  a real collection isn't caught by mistake.
+- **Ephemeral containers are excluded from the resource-limits check entirely** -
+  Kubernetes forbids a `resources` field on an ephemeral container outright, so
+  requiring one would make any manifest with a debug ephemeral container permanently,
+  unfixably non-compliant. Confirmed directly: an otherwise fully-hardened Pod failed
+  only because its ephemeral debugger lacked `resources.limits`, a field it is not
+  allowed to have.
+- **`allowPrivilegeEscalation` is skipped for Windows pods.** Confirmed against
+  Kubernetes' own docs: the API server rejects a Windows Pod outright if
+  `allowPrivilegeEscalation` is set at all, true or false - Windows has no privilege-
+  escalation concept to toggle. Requiring it unconditionally made this policy and the
+  real API server mutually impossible to satisfy for a legitimate Windows workload.
+- **The CI coverage gate was computing expression-region counts, not line counts** -
+  `covered`/`not_covered` in OPA's JSON output are arrays of row/col ranges (several
+  per line), while `covered_lines`/`not_covered_lines` are the actual integer counts.
+  `len()` on the wrong arrays reported 97.18% against a deliberately-broken file where
+  the correct figure was 95.70% - confirmed by diffing both calculations side by side.
 
 ## Supported input shapes
 
@@ -55,24 +92,28 @@ that indirection is exactly how the CronJob gap below went unnoticed.
 
 | Kind | Regular containers | Init containers | Ephemeral containers |
 |---|---|---|---|
-| Pod | ✅ | ✅ | ✅ |
-| Deployment | ✅ | ✅ | ✅ |
-| StatefulSet | ✅ | ✅ | - |
-| DaemonSet | ✅ | ✅ | - |
-| Job | ✅ | ✅ | - |
-| CronJob | ✅ | ✅ | - |
-| `kind: List` | **rejected outright**, see Known limitations | | |
+| Pod | ✅ | ✅ | ✅ (security checks only - never resource limits, see note above) |
+| Deployment | ✅ | ✅ | not supported - Kubernetes only adds ephemeral containers to an already-running Pod via a subresource, never through a Deployment's PodTemplateSpec |
+| StatefulSet | ✅ | ✅ | not supported, same reason as Deployment |
+| DaemonSet | ✅ | ✅ | not supported, same reason as Deployment |
+| Job | ✅ | ✅ | not supported, same reason as Deployment |
+| CronJob | ✅ | ✅ | not supported, same reason as Deployment |
+| `List`, `PodList`, `DeploymentList`, any `*List` with `items` | **rejected outright**, see Known limitations | | |
+
+`allowPrivilegeEscalation` is additionally skipped for any of the above when
+`spec.os.name: windows` is set - see the accuracy note above.
 
 ## Known limitations
 
-- **`kind: List` is rejected, not inspected.** Every policy here reads `input.kind`/
-  `input.spec`/`input.metadata` directly, assuming `input` IS the resource. A `List`
-  wrapping other resources in an `items` array is a single opaque document from
-  conftest's point of view - none of the policies look inside `items[]`, so a
-  privileged Pod wrapped in a List silently passed 11/11 before this was caught and
-  fixed. Properly supporting `List` means rewriting every helper and every policy's
-  `input.*` reference to operate over a `documents[]` set instead - a real, larger
-  refactor than this repo has done. Rejecting the input outright is the safer
+- **Collection-shaped input (`List`, `PodList`, `DeploymentList`, any `kind` ending in
+  `List` with an `items` array) is rejected, not inspected.** Every policy here reads
+  `input.kind`/`input.spec`/`input.metadata` directly, assuming `input` IS the
+  resource - none of them look inside `items[]`, so a privileged Pod wrapped in any
+  collection kind silently passed clean before this was caught and fixed (first for
+  the bare `List` kind, then again for the resource-specific `*List` kinds the first
+  fix missed). Properly supporting collections means rewriting every helper and every
+  policy's `input.*` reference to operate over a `documents[]` set instead - a real,
+  larger refactor than this repo has done. Rejecting the input outright is the safer
   near-term fix: submit individual manifests, or multi-document YAML (`---`
   separated), which conftest already evaluates correctly per document.
 - **The static-key secret-volume check matches on the Secret's name**, not its actual
@@ -83,9 +124,12 @@ that indirection is exactly how the CronJob gap below went unnoticed.
 - **The Workload Identity annotation check cannot prove Workload Identity is actually
   configured end-to-end** - see the note under "What it checks" above. It validates
   annotation format only.
-- **Exceptions have no governance.** Nothing in this repo enforces who can label a
-  resource exempt from a policy, for how long, or why - there's no CODEOWNERS-style
-  review gate on an exception, which a production version of this would need.
+- **There is currently no exception mechanism at all**, governed or otherwise - an
+  earlier `policy.guardrails/exempt` label was removed when the Workload Identity
+  check was narrowed to only flag malformed annotations (see above), and nothing
+  replaced it. A production version of this would need a real exception path - likely
+  a governed one with an owner, a reason, and an expiry, reviewed through something
+  like CODEOWNERS - rather than either a self-service label or no path at all.
 
 ## Why a dedicated `policies.*` package per file
 

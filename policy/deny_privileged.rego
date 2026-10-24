@@ -9,7 +9,7 @@ import data.common
 # verify against whichever benchmark version your org has actually adopted.
 
 deny contains msg if {
-	container := common.all_containers[_]
+	container := common.security_relevant_containers[_]
 	container.securityContext.privileged == true
 	msg := sprintf("%s/%s: container %q must not run privileged", [input.kind, common.name, container.name])
 }

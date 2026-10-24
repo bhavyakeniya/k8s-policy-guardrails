@@ -11,13 +11,13 @@ import data.common
 # CPU and memory limits so a bad deploy can't starve its node.
 
 deny contains msg if {
-	container := common.all_containers[_]
+	container := common.resource_managed_containers[_]
 	not container.resources.limits.cpu
 	msg := sprintf("%s/%s: container %q is missing resources.limits.cpu", [input.kind, common.name, container.name])
 }
 
 deny contains msg if {
-	container := common.all_containers[_]
+	container := common.resource_managed_containers[_]
 	not container.resources.limits.memory
 	msg := sprintf("%s/%s: container %q is missing resources.limits.memory", [input.kind, common.name, container.name])
 }

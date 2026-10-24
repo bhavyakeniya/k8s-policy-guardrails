@@ -18,7 +18,7 @@ import data.common
 # this repo, called out here rather than silently left unfixed.
 
 deny contains msg if {
-	container := common.all_containers[_]
+	container := common.security_relevant_containers[_]
 	env := container.env[_]
 	env.name == "GOOGLE_APPLICATION_CREDENTIALS"
 	msg := sprintf("%s/%s: container %q sets GOOGLE_APPLICATION_CREDENTIALS; use Workload Identity Federation instead of a mounted key", [input.kind, common.name, container.name])
@@ -53,9 +53,22 @@ deny contains msg if {
 # What IS still a real, visible-from-the-manifest mistake: a ServiceAccount
 # that HAS the annotation but with a malformed value - that's unambiguous
 # regardless of which Workload Identity pattern is in use.
+# Matches Google's actual service-account-ID grammar for both the SA-id
+# and project-id components - [a-z]([-a-z0-9]*[a-z0-9])?, 6-30 characters
+# total - checked against GCP's own documented requirements rather than
+# assumed. The previous regex only validated the domain suffix and the
+# absence of whitespace, so `!!!@???.iam.gserviceaccount.com` passed it;
+# confirmed directly before fixing. This intentionally does NOT accept the
+# legacy default-compute-service-account format
+# (N-compute@developer.gserviceaccount.com) - Google's own Workload
+# Identity guidance recommends a dedicated service account over the
+# default compute one, so rejecting that format here is a feature, not a
+# gap.
+gsa_component := `[a-z][-a-z0-9]{4,28}[a-z0-9]`
+
 deny contains msg if {
 	input.kind == "ServiceAccount"
 	annotation := input.metadata.annotations["iam.gke.io/gcp-service-account"]
-	not regex.match(`^[^@\s]+@[^@\s]+\.iam\.gserviceaccount\.com$`, annotation)
-	msg := sprintf("ServiceAccount/%s: iam.gke.io/gcp-service-account annotation %q is not a valid *.iam.gserviceaccount.com email - note that this check cannot confirm Workload Identity is actually wired up end-to-end (the IAM-side binding lives outside this manifest), only that the annotation, if present, is well-formed", [common.name, annotation])
+	not regex.match(sprintf(`^%s@%s\.iam\.gserviceaccount\.com$`, [gsa_component, gsa_component]), annotation)
+	msg := sprintf("ServiceAccount/%s: iam.gke.io/gcp-service-account annotation %q does not match Google's service-account-ID grammar ([a-z]([-a-z0-9]*[a-z0-9])?, 6-30 chars, for both the account and project components) - note that this check cannot confirm Workload Identity is actually wired up end-to-end (the IAM-side binding lives outside this manifest), only that the annotation, if present, is well-formed", [common.name, annotation])
 }
