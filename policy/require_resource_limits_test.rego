@@ -118,6 +118,21 @@ test_valid_exponent_notation_allowed if {
 	count(deny) == 0 with input as mock_input
 }
 
+# Documents a known, accepted scope boundary, not a bug: this check
+# validates positive and syntactically well-formed, not full Kubernetes
+# CPU semantics. "0.0005" is finer than Kubernetes' documented 1m/0.001
+# CPU precision, and both this check and kubeconform treat it as valid -
+# confirmed directly. See the module docstring for why CPU-specific
+# precision enforcement isn't attempted here.
+test_sub_milli_cpu_precision_is_a_known_scope_boundary_not_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {"containers": [{"name": "app", "resources": {"limits": {"cpu": "0.0005", "memory": "256Mi"}}}]},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
 test_positive_unquoted_number_allowed if {
 	mock_input := {
 		"kind": "Pod",

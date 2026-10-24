@@ -222,3 +222,27 @@ one per secret - two identical-intent violations for the same volume. Fixed by
 splitting into `suspicious_secret_names`, a set of names (not name/pattern pairs) that
 dedupes for free, then one `deny` rule over that set. Regression test asserts
 `count(deny) == 1` for `gcp-key.json` specifically.
+
+## kubeconform's unpinned defaults, and CPU precision as an explicit scope boundary
+
+The `kubeconform -strict` CI step added for the quantity-format gap above was itself
+unpinned: `-kubernetes-version` defaults to the literal string `"master"`, and the
+default `-schema-location` points at the `master` branch of kubeconform's own schema
+repository - confirmed directly against kubeconform's own documentation. Both are
+moving targets, so the same commit in this repository could start passing or failing
+with no change here at all, which undercut the SHA/checksum pinning work done
+elsewhere in this CI. Fixed by pinning `-kubernetes-version` to an exact release
+(`1.31.14`) and `-schema-location` to an immutable commit SHA of the schema repo
+instead of its mutable branch name - re-verified the pinned invocation still validates
+every example manifest correctly before committing.
+
+Separately: `cpu: "0.0005"` is finer than Kubernetes' documented 1m/0.001 CPU
+precision floor, and passes both `require_resource_limits.rego`'s quantity check and
+kubeconform - confirmed directly, neither treats it as invalid. Investigated whether
+Kubernetes hard-rejects this at admission or silently truncates it internally via
+apimachinery's millivalue representation; the available sources disagreed enough that
+citing a specific rejection mechanism with confidence wasn't possible. Rather than
+guess at implementing CPU-specific semantic enforcement on an uncertain premise, this
+is documented as an explicit, deliberate scope boundary instead, with a test locking
+in the current (accepted) behavior: this policy validates that a quantity is positive
+and syntactically well-formed, not full Kubernetes CPU semantics.

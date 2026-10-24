@@ -34,7 +34,17 @@ import data.common
 # full unit-conversion arithmetic, which this check deliberately does not
 # attempt: it is validating shape and sign, not converting "0.5Gi" into
 # bytes.
-
+#
+# Explicit scope boundary: this validates that a quantity is positive and
+# SYNTACTICALLY well-formed, not full Kubernetes CPU semantics.
+# cpu: "0.0005" (finer than Kubernetes' documented 1m/0.001 CPU precision)
+# passes both this check and kubeconform - confirmed directly, neither
+# treats it as invalid, because Kubernetes' own handling of sub-milli CPU
+# precision is internal truncation/rounding behavior in apimachinery, not
+# a clearly-documented hard admission rejection this repo could point to
+# and reproduce with confidence. Enforcing a specific CPU-only precision
+# rule on top of the general quantity grammar would be real, separate
+# scope - not attempted here rather than guessed at.
 deny contains msg if {
 	container := common.resource_managed_containers[_]
 	not has_valid_positive_quantity(container, "cpu")

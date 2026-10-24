@@ -26,7 +26,7 @@ record. This README states only the resulting current behavior.
 | Deny `allowPrivilegeEscalation` (Linux pods only) | `policy/deny_privilege_escalation.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Deny `hostNetwork` / `hostPID` / `hostIPC` | `policy/deny_host_namespaces.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require non-root containers | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
-| Require positive, well-formed CPU/memory limits (regular/init containers only) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
+| Require positive, syntactically valid Kubernetes Quantity CPU/memory limits (regular/init containers only) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
 | Workload Identity annotation format (not full wiring) | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene) |
 | Reject collection-shaped input (`List`, `PodList`, `DeploymentList`, ...) | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
 
@@ -59,9 +59,15 @@ indirectly through whichever shape an individual policy's test happens to use.
   configured end-to-end** - it validates annotation format only.
 - **There is currently no exception mechanism** - governed or otherwise.
 - **These policies assume schema-valid input.** CI enforces that with `kubeconform
-  -strict` against every example manifest, but a user running `conftest` directly
-  against a hand-edited manifest that skips that step is on their own for structural
-  validity (wrong types, unknown fields, bad apiVersions).
+  -strict` against every example manifest, pinned to an exact Kubernetes version and
+  an immutable schema-repo commit (kubeconform's defaults - `-kubernetes-version
+  master` and its schema repo's `master` branch - are both moving targets, confirmed
+  against kubeconform's own docs). A user running `conftest` directly against a
+  hand-edited manifest that skips that step is on their own for structural validity.
+- **CPU/memory limits are validated as positive and syntactically well-formed, not
+  full Kubernetes semantics.** `cpu: "0.0005"` is finer than Kubernetes' documented
+  1m/0.001 CPU precision floor, and passes both this check and kubeconform - confirmed
+  directly. Server-side CPU-precision semantics are out of scope here.
 
 ## Architecture
 
@@ -128,10 +134,11 @@ docs/review-history.md             # detailed record of external review findings
 `.github/workflows/ci.yml` runs with `permissions: contents: read` and a 10-minute
 timeout on a pinned `ubuntu-24.04` runner. It installs checksum-verified OPA,
 conftest, and [kubeconform](https://github.com/yannh/kubeconform) binaries and a
-SHA-pinned `actions/checkout`, runs `kubeconform -strict` against every example
-manifest (structural schema validation - the policies assume schema-valid input,
-this is what makes that true in CI; it does **not** validate Kubernetes quantity
-string format, see Known limitations), runs `opa fmt --fail` and `opa check
+SHA-pinned `actions/checkout`, runs `kubeconform -strict` (pinned to an exact
+Kubernetes version and an immutable schema-repo commit, not kubeconform's mutable
+`master` defaults) against every example manifest for structural schema validation -
+it does **not** validate Kubernetes quantity string format, see Known limitations -
+runs `opa fmt --fail` and `opa check
 --strict`, runs the unit test suite with a 95% coverage gate computed from
 production `.rego` files only, then runs `scripts/assert_policy_coverage.py` to
 assert each fail fixture trips its own exact policy namespace and each pass fixture
