@@ -185,3 +185,40 @@ nothing to do with GCP. Fixed by requiring each pattern to match as its own toke
 delimited by the name's start/end or a `-`/`.` (`(^|[-.])pattern([-.]|$)`), applied to
 every pattern in the list rather than just the one reported case - `gcp-key` alone
 could just as easily mismatch inside an unrelated name like `gcp-keyboard-config`.
+
+## Malformed quantity strings, and kubeconform's actual coverage
+
+`require_resource_limits.rego`'s quantity check extracted only the leading numeric
+prefix and ignored whatever followed it, so `"1garbage"`, `"1MiB"` (the real binary
+suffix is `Mi`, not `MiB`), and `"1e"` (exponent notation needs digits after the `e`)
+all passed as positive quantities. The suggested fix was to run
+[kubeconform](https://github.com/yannh/kubeconform) before conftest and document that
+these policies assume schema-valid input, rather than reimplementing Kubernetes' full
+Quantity parser in Rego. Checked that assumption directly before trusting it:
+kubeconform reports `cpu: "1garbage"` as **valid**, because the Kubernetes OpenAPI
+schema types `resources.limits.cpu`/`memory` as a plain string with no
+format/pattern constraint - the real apiserver only rejects a malformed quantity
+string during semantic admission, a step schema validation doesn't perform. So
+kubeconform alone would not have closed this gap.
+
+Fixed with `quantity_pattern`, a regex anchored against the *entire* value matching
+Kubernetes' actual quantity grammar - a signed number followed by an optional suffix
+from the specific binarySI (`Ki`/`Mi`/`Gi`/`Ti`/`Pi`/`Ei`)/decimalSI
+(`n`/`u`/`m`/`k`/`M`/`G`/`T`/`P`/`E`)/exponent (`e`/`E` plus a signed integer) set
+Kubernetes defines - not a free-form unit. This validates shape and sign; it
+deliberately does not attempt unit-conversion arithmetic (turning `"0.5Gi"` into a
+byte count), which is the part that would have actually been "reimplementing the
+parser." `kubeconform -strict` was still added to CI as a genuinely useful,
+complementary layer - it catches wrong types, missing/unknown fields, and bad
+apiVersions, none of which the Rego policies attempt - with an explicit note in both
+the workflow and the README that it does not cover quantity-string format.
+
+## Overlapping naming patterns produced duplicate violations
+
+`gcp-key.json` matches both the `gcp-key` and `key.json` patterns in
+`static_key_name_patterns`, and the original rule structure (iterate secrets, iterate
+patterns, deny per match) produced one deny message per matching pattern instead of
+one per secret - two identical-intent violations for the same volume. Fixed by
+splitting into `suspicious_secret_names`, a set of names (not name/pattern pairs) that
+dedupes for free, then one `deny` rule over that set. Regression test asserts
+`count(deny) == 1` for `gcp-key.json` specifically.

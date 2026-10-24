@@ -56,12 +56,23 @@ secret_volume_names contains name if {
 # satisfies "gcp-key". Applied to every pattern, not just the one reported
 # false positive - "gcp-key" alone could just as easily mismatch inside an
 # unrelated name like "gcp-keyboard-config".
-deny contains msg if {
+#
+# suspicious_secret_names is a SET of names, not of (name, pattern) pairs
+# - deduplication falls out of that for free. Without it, a name matching
+# more than one pattern produced one deny per matching pattern instead of
+# one per secret. Confirmed directly: "gcp-key.json" matches both
+# "gcp-key" and "key.json", and produced two separate violation messages
+# for the same volume before this split existed.
+suspicious_secret_names contains name if {
 	name := secret_volume_names[_]
 	pattern := static_key_name_patterns[_]
 	escaped_pattern := regex.replace(pattern, `\.`, `\.`)
 	regex.match(sprintf(`(^|[-.])%s([-.]|$)`, [escaped_pattern]), lower(name))
-	msg := sprintf("%s/%s: a volume mounts secret %q, matching %q; use Workload Identity Federation instead of a static key", [input.kind, common.name, name, pattern])
+}
+
+deny contains msg if {
+	name := suspicious_secret_names[_]
+	msg := sprintf("%s/%s: a volume mounts secret %q, matching a static-key naming pattern; use Workload Identity Federation instead of a static key", [input.kind, common.name, name])
 }
 
 # deny_malformed_workload_identity_annotation, not

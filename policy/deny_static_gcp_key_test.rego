@@ -100,6 +100,21 @@ test_exact_sa_key_still_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# Confirmed as a real duplicate before suspicious_secret_names deduped by
+# name: "gcp-key.json" matches both the "gcp-key" and "key.json" patterns,
+# and produced two separate deny messages for the same volume.
+test_overlapping_patterns_produce_exactly_one_violation if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "gcp-key.json"}}],
+		},
+	}
+	count(deny) == 1 with input as mock_input
+}
+
 test_key_dot_json_pattern_still_denied if {
 	mock_input := {
 		"kind": "Pod",
