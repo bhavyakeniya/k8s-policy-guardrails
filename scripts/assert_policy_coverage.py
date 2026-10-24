@@ -73,6 +73,15 @@ def main():
     pass_files = []
     for g in args.pass_globs:
         pass_files.extend(sorted(glob.glob(g)))
+    if not pass_files:
+        # A glob matching nothing used to let the loop below just not
+        # run, leaving ok untouched and the script exit 0 - a silent,
+        # vacuous pass. If every pass fixture got deleted or renamed, this
+        # gate must fail loudly, not disappear quietly. Confirmed directly
+        # before this check existed.
+        print(f"FAIL: --pass-glob matched no files ({args.pass_globs!r}) - the pass-fixture "
+              f"gate cannot vacuously succeed", file=sys.stderr)
+        sys.exit(1)
     for path in pass_files:
         report, rc = run_conftest(path, args.policy_dir)
         ok &= check_no_exceptions(report, path)

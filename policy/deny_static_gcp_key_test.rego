@@ -69,6 +69,68 @@ test_service_account_malformed_annotation_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# "not-an-email" above doesn't even contain an "@", so the OLD permissive
+# regex (which only checked for an "@" and the right domain suffix) would
+# have rejected it too - a regression back to that old regex could stay
+# green against this suite alone. This preserves the exact string the old
+# regex accepted, confirmed directly before the grammar fix, so a
+# regression is caught here specifically.
+test_old_regex_exploit_string_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "!!!@???.iam.gserviceaccount.com"}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_id_minimum_length_6_allowed if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "abcdef@abcdef.iam.gserviceaccount.com"}},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+test_service_account_id_maximum_length_30_allowed if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbz@my-project.iam.gserviceaccount.com"}},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+test_service_account_id_overlength_31_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbz@my-project.iam.gserviceaccount.com"}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_uppercase_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "App-sa@my-project.iam.gserviceaccount.com"}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_leading_hyphen_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "-appsa@my-project.iam.gserviceaccount.com"}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_service_account_trailing_hyphen_denied if {
+	mock_input := {
+		"kind": "ServiceAccount",
+		"metadata": {"name": "app-sa", "annotations": {"iam.gke.io/gcp-service-account": "appsa-@my-project.iam.gserviceaccount.com"}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
 test_service_account_with_workload_identity_allowed if {
 	mock_input := {
 		"kind": "ServiceAccount",
