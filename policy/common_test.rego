@@ -164,3 +164,15 @@ test_is_windows_pod_false_when_linux if {
 test_is_windows_pod_false_when_unset if {
 	not is_windows_pod with input as pod_regular
 }
+
+test_pod_run_as_user_is_zero_true if {
+	pod_run_as_user_is_zero with input as {"kind": "Pod", "metadata": {"name": "x"}, "spec": {"securityContext": {"runAsUser": 0}, "containers": [{"name": "app"}]}}
+}
+
+test_pod_run_as_user_is_zero_false_when_nonzero if {
+	not pod_run_as_user_is_zero with input as {"kind": "Pod", "metadata": {"name": "x"}, "spec": {"securityContext": {"runAsUser": 1000}, "containers": [{"name": "app"}]}}
+}
+
+test_pod_run_as_user_is_zero_false_when_unset if {
+	not pod_run_as_user_is_zero with input as pod_regular
+}

@@ -257,3 +257,34 @@ point of pinning in the first place. Confirmed directly (HTTP 200 on the exact s
 URL at the same already-pinned commit) that `1.37.1` is available, then re-verified
 all ten example manifests still validate against it before changing the default from
 `1.31.14` to `1.37.1`.
+
+## runAsNonRoot as a boolean flag, never cross-checked against an explicit root UID
+
+`require_non_root.rego` only checked the boolean `runAsNonRoot` flag at pod and
+container level. Confirmed directly: a Pod with pod-level `runAsNonRoot: true` AND a
+container explicitly setting `runAsUser: 0` passed kubeconform, passed a server-side
+dry-run, and passed every policy in this repo (12/12) - the flag and the UID were
+never cross-checked against each other, even though `runAsUser: 0` is root regardless
+of what the flag claims, and Kubernetes' Restricted Pod Security Standard separately
+prohibits it. The kubelet would ultimately refuse to start the container, so this
+wasn't a runtime privilege bypass, but it was a real CI false negative for a policy
+literally named "require non-root." Fixed with explicit UID-zero checks at both pod
+and container level (`common.pod_run_as_user_is_zero`, mirroring the existing
+`pod_runs_as_non_root` pattern), covering regular, init, and ephemeral containers via
+the same `security_relevant_containers` set every other check here uses. Also tested
+that a container explicitly overriding a pod-level `runAsUser: 0` with a real non-zero
+UID isn't falsely denied.
+
+## The fixture-coverage gate verified consistency, not completeness
+
+`scripts/assert_policy_coverage.py` validated that each `--map` entry's file tripped
+its claimed namespace, but never checked whether the `--map` list itself was
+complete. Confirmed directly: rerunning with the `privileged` policy's mapping
+deliberately deleted still exited 0, even though both
+`policy/deny_privileged.rego` and `examples/fail/privileged.yaml` still existed on
+disk - a future policy, or an accidentally deleted mapping, could silently receive no
+integration-fixture coverage while CI stayed green. Fixed with two completeness
+checks: every `policies.*` package name derived from `policy/*.rego` (not hardcoded)
+must appear as a mapped namespace, and every file actually present in a new
+`--fail-dir` argument must appear as a `--map` key. Re-verified the omitted-mapping
+scenario now fails loudly, and that the complete, correct mapping still passes clean.

@@ -8,9 +8,20 @@ policies at once could mask one of them silently regressing. Each file in
 examples/pass is checked for zero violations across every package. Also
 checks the process exit code and conftest's "exceptions" field so a crash
 producing truncated-but-valid-looking JSON can't be mistaken for success.
+
+This script also has to verify the --map list itself is complete, not
+just internally consistent - confirmed directly as a real gap: rerunning
+with the privileged-policy mapping deliberately deleted still exited 0,
+even though both policies/deny_privileged.rego and
+examples/fail/privileged.yaml still existed. A policy with no fixture
+mapped to it, or a fixture file with no mapping pointing at it, must fail
+loudly rather than receive silent zero coverage.
 """
 import argparse
+import glob
 import json
+import os
+import re
 import subprocess
 import sys
 
@@ -43,9 +54,27 @@ def check_no_exceptions(report, path):
     return True
 
 
+def production_policy_packages(policy_dir):
+    """Every policies.* package declared in a non-test .rego file. Derived
+    from the source, not hardcoded, so a new policy file with no mapping
+    shows up as a real gap instead of silently passing."""
+    packages = set()
+    for path in glob.glob(os.path.join(policy_dir, "*.rego")):
+        if path.endswith("_test.rego"):
+            continue
+        with open(path) as f:
+            text = f.read()
+        match = re.search(r"^package\s+(policies\.\S+)", text, re.MULTILINE)
+        if match:
+            packages.add(match.group(1))
+    return packages
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy-dir", required=True)
+    parser.add_argument("--fail-dir", required=True,
+                         help="directory of fail fixtures - every file here must appear as a --map key")
     parser.add_argument("--map", action="append", required=True, dest="maps",
                          metavar="FILE=NAMESPACE",
                          help="a fail-example file and the exact namespace it must trip")
@@ -53,9 +82,32 @@ def main():
     args = parser.parse_args()
 
     ok = True
-
+    mapped_files = {}
     for mapping in args.maps:
         path, expected_ns = mapping.split("=", 1)
+        mapped_files[path] = expected_ns
+
+    # Completeness check 1: every policies.* package in policy-dir must be
+    # the expected namespace for at least one mapped fixture.
+    expected_packages = production_policy_packages(args.policy_dir)
+    mapped_packages = set(mapped_files.values())
+    missing_packages = expected_packages - mapped_packages
+    if missing_packages:
+        print(f"FAIL: these policy packages have no fixture mapped to them at all: "
+              f"{sorted(missing_packages)}", file=sys.stderr)
+        ok = False
+
+    # Completeness check 2: every file actually present in --fail-dir must
+    # be a --map key. Confirmed directly: omitting a mapping for a fixture
+    # that still exists on disk used to exit 0 silently.
+    actual_fail_files = set(glob.glob(os.path.join(args.fail_dir, "*.yaml")))
+    missing_files = actual_fail_files - set(mapped_files.keys())
+    if missing_files:
+        print(f"FAIL: these fixture files exist in {args.fail_dir} but have no --map entry: "
+              f"{sorted(missing_files)}", file=sys.stderr)
+        ok = False
+
+    for path, expected_ns in mapped_files.items():
         report, rc = run_conftest(path, args.policy_dir)
         ok &= check_no_exceptions(report, path)
         if rc != 1:
@@ -69,7 +121,6 @@ def main():
         else:
             print(f"OK: {path} tripped exactly {expected_ns}, exit 1, no exceptions")
 
-    import glob
     pass_files = []
     for g in args.pass_globs:
         pass_files.extend(sorted(glob.glob(g)))

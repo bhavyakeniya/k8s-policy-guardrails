@@ -25,7 +25,7 @@ record. This README states only the resulting current behavior.
 | Deny privileged containers | `policy/deny_privileged.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Deny `allowPrivilegeEscalation` (Linux pods only) | `policy/deny_privilege_escalation.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Deny `hostNetwork` / `hostPID` / `hostIPC` | `policy/deny_host_namespaces.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
-| Require non-root containers | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
+| Require non-root containers, including cross-checking `runAsUser: 0` against `runAsNonRoot` at both pod and container level | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require positive, syntactically valid Kubernetes Quantity CPU/memory limits (regular/init containers only) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
 | Workload Identity annotation format (not full wiring) | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene) |
 | Reject collection-shaped input (`List`, `PodList`, `DeploymentList`, ...) | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
@@ -95,7 +95,7 @@ manifests that must pass every policy. What CI actually asserts - exact namespac
 fixture, not just a non-zero exit:
 
 ```bash
-python3 scripts/assert_policy_coverage.py --policy-dir policy \
+python3 scripts/assert_policy_coverage.py --policy-dir policy --fail-dir examples/fail \
   --map examples/fail/privileged.yaml=policies.privileged \
   --map examples/fail/privilege-escalation.yaml=policies.privilege_escalation \
   --map examples/fail/host-namespaces.yaml=policies.host_namespaces \

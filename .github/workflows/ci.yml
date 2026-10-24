@@ -115,6 +115,7 @@ jobs:
         run: |
           python3 scripts/assert_policy_coverage.py \
             --policy-dir policy \
+            --fail-dir examples/fail \
             --map examples/fail/privileged.yaml=policies.privileged \
             --map examples/fail/privilege-escalation.yaml=policies.privilege_escalation \
             --map examples/fail/host-namespaces.yaml=policies.host_namespaces \

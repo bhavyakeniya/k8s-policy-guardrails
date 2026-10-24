@@ -78,6 +78,18 @@ pod_runs_as_non_root if {
 	s.securityContext.runAsNonRoot == true
 }
 
+# True when any pod-shaped spec on this manifest sets runAsUser: 0 at the
+# pod level - explicit root, which directly contradicts runAsNonRoot and
+# which Kubernetes' Restricted Pod Security Standard separately
+# prohibits. Confirmed directly: a Pod with pod-level runAsNonRoot: true
+# AND a container explicitly setting runAsUser: 0 passed every policy in
+# this repo clean - runAsNonRoot being a boolean flag was never cross-
+# checked against an explicit root UID contradicting it.
+pod_run_as_user_is_zero if {
+	some s in all_pod_specs
+	s.securityContext.runAsUser == 0
+}
+
 # True when this manifest declares a Windows pod (spec.os.name: windows).
 # Matters for allowPrivilegeEscalation specifically: confirmed against
 # Kubernetes' own Pod Security Standards docs, a Windows Pod is REJECTED
