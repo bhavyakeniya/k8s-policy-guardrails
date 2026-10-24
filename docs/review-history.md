@@ -166,3 +166,22 @@ percentage, and a test file is ~100% covered by definition just by running. That
 is what let `common.rego`'s real 68.97% line coverage hide behind an overall 96.95%
 before the CronJob init-container gap in that specific file was found and fixed. CI now
 computes coverage from production `.rego` files only.
+
+## Projected Secret volumes and the sa-key substring false positive
+
+The static-key secret-volume check only looked at `volume.secret.secretName` - the
+directly-mounted Secret shape. Kubernetes also supports [projected volumes](https://kubernetes.io/docs/concepts/storage/projected-volumes/),
+where a Secret is referenced via `volume.projected.sources[].secret.name` instead.
+Confirmed directly: a hardened Pod mounting the exact same `my-gcp-key` Secret through
+the projected shape passed every policy clean. Fixed by extracting Secret names from
+both volume shapes into one `secret_volume_names` set and applying the naming
+heuristic once, rather than duplicating it per shape.
+
+Separately, that naming heuristic used a plain `contains()` substring check, which
+means `sa-key` matched inside `tls-rsa-key` (the substring `sa-key` is literally
+present inside `rsa-key`). Confirmed directly: an otherwise fully-hardened Pod
+mounting an ordinary TLS secret named `tls-rsa-key` was rejected for a reason that had
+nothing to do with GCP. Fixed by requiring each pattern to match as its own token,
+delimited by the name's start/end or a `-`/`.` (`(^|[-.])pattern([-.]|$)`), applied to
+every pattern in the list rather than just the one reported case - `gcp-key` alone
+could just as easily mismatch inside an unrelated name like `gcp-keyboard-config`.

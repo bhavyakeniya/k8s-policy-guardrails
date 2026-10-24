@@ -21,6 +21,97 @@ test_gcp_key_secret_volume_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# Confirmed as a real bypass before projected-volume support existed: a
+# hardened Pod mounting the exact same Secret through the projected shape
+# instead of the direct one passed clean (12/12).
+test_gcp_key_projected_secret_volume_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "projected": {"sources": [{"secret": {"name": "my-gcp-key"}}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_gcp_key_projected_secret_volume_in_deployment_template_denied if {
+	mock_input := {
+		"kind": "Deployment",
+		"metadata": {"name": "bad-deploy"},
+		"spec": {"template": {"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "projected": {"sources": [{"secret": {"name": "my-gcp-key"}}]}}],
+		}}},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_projected_volume_with_non_secret_source_allowed if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "cfg", "projected": {"sources": [{"configMap": {"name": "app-config"}}]}}],
+		},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+# Confirmed as a real false positive before token-boundary matching
+# existed: "tls-rsa-key" contains the literal substring "sa-key" (inside
+# "rsa-key"), so an otherwise hardened Pod mounting an ordinary TLS secret
+# was rejected for a reason that had nothing to do with GCP.
+test_tls_rsa_key_not_flagged_as_sa_key_false_positive if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "tls", "secret": {"secretName": "tls-rsa-key"}}],
+		},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+test_gcp_keyboard_not_flagged_as_gcp_key_false_positive if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "cfg", "secret": {"secretName": "mygcp-keyboard-config"}}],
+		},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+test_exact_sa_key_still_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "legacy-sa-key"}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_key_dot_json_pattern_still_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "backup-key.json"}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
 test_service_account_key_named_volume_denied if {
 	mock_input := {
 		"kind": "Pod",

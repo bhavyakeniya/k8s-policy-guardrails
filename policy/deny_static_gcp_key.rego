@@ -26,13 +26,42 @@ deny contains msg if {
 
 static_key_name_patterns := ["gcp-key", "service-account-key", "sa-key", "key.json"]
 
-deny contains msg if {
+# Secret names from both volume shapes Kubernetes supports - a directly
+# mounted Secret volume (volume.secret.secretName) and a projected volume
+# (volume.projected.sources[].secret.name). Confirmed directly: a hardened
+# Pod mounting the exact same "my-gcp-key" Secret through the projected
+# shape instead of the direct one passed clean, because only the direct
+# shape was checked. Both shapes feed the same naming heuristic once below
+# rather than duplicating it per volume type.
+secret_volume_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
-	volume.secret.secretName
+	name := volume.secret.secretName
+}
+
+secret_volume_names contains name if {
+	spec := common.all_pod_specs[_]
+	volume := spec.volumes[_]
+	source := volume.projected.sources[_]
+	name := source.secret.name
+}
+
+# Token-boundary matched, not a plain substring - confirmed directly as a
+# real false positive: "tls-rsa-key" contains the literal substring
+# "sa-key" (inside "rsa-key"), so a plain contains() check rejected a
+# hardened Pod that mounted an ordinary TLS secret, for a reason that had
+# nothing to do with GCP. "(^|[-.])pattern([-.]|$)" requires the pattern to
+# be its own token, delimited by the name's start/end or a "-"/".", so
+# "rsa-key" no longer satisfies "sa-key" the same way "my-gcp-key" still
+# satisfies "gcp-key". Applied to every pattern, not just the one reported
+# false positive - "gcp-key" alone could just as easily mismatch inside an
+# unrelated name like "gcp-keyboard-config".
+deny contains msg if {
+	name := secret_volume_names[_]
 	pattern := static_key_name_patterns[_]
-	contains(lower(volume.secret.secretName), pattern)
-	msg := sprintf("%s/%s: volume %q mounts a secret matching %q; use Workload Identity Federation instead of a static key", [input.kind, common.name, volume.name, pattern])
+	escaped_pattern := regex.replace(pattern, `\.`, `\.`)
+	regex.match(sprintf(`(^|[-.])%s([-.]|$)`, [escaped_pattern]), lower(name))
+	msg := sprintf("%s/%s: a volume mounts secret %q, matching %q; use Workload Identity Federation instead of a static key", [input.kind, common.name, name, pattern])
 }
 
 # deny_malformed_workload_identity_annotation, not
