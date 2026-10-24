@@ -246,3 +246,14 @@ guess at implementing CPU-specific semantic enforcement on an uncertain premise,
 is documented as an explicit, deliberate scope boundary instead, with a test locking
 in the current (accepted) behavior: this policy validates that a quantity is positive
 and syntactically well-formed, not full Kubernetes CPU semantics.
+
+## The pinned Kubernetes version itself went stale
+
+Pinning kubeconform's target Kubernetes version (above) to an exact release fixed the
+mutable-default problem, but the exact release chosen - `1.31.14` - had reached end of
+life on 2025-11-11, outside Kubernetes' three-minor-version support window. For a
+security-focused project, validating against an unsupported release undercuts the
+point of pinning in the first place. Confirmed directly (HTTP 200 on the exact schema
+URL at the same already-pinned commit) that `1.37.1` is available, then re-verified
+all ten example manifests still validate against it before changing the default from
+`1.31.14` to `1.37.1`.

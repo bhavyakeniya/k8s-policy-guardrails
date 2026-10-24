@@ -20,8 +20,11 @@ env:
   # directly against kubeconform's own docs: both defaults track moving
   # targets, so the same commit here could start passing or failing with
   # no change to this repository. Pinned to an exact Kubernetes version
-  # and an immutable commit SHA of the schema repo instead.
-  KUBECONFORM_TARGET_K8S_VERSION: "1.31.14"
+  # and an immutable commit SHA of the schema repo instead. The version
+  # itself must stay a currently-supported release, not just pinned -
+  # 1.31 reached end of life 2025-11-11; confirmed directly (HTTP 200 on
+  # the exact schema URL) that 1.37.1 is available at this same commit.
+  KUBECONFORM_TARGET_K8S_VERSION: "1.37.1"
   KUBECONFORM_SCHEMA_COMMIT: "f7d855e49c34b039c9ef2196444910275e31e09e"
 
 jobs:
