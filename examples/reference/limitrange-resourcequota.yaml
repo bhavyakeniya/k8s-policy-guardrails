@@ -1,0 +1,44 @@
+# Illustrative only - not enforced by any OPA policy in this repo, and
+# not exercised by CI. require_resource_limits.rego checks that a single
+# container declares a positive, syntactically valid limit; it cannot
+# reject an absurd single value or constrain aggregate consumption across
+# replicas or a namespace, because no per-Pod admission policy can - that
+# requires comparing against every other workload in the namespace at
+# once. These are Kubernetes' own, separate mechanisms for exactly those
+# two problems: LimitRange caps what a single container/Pod can request,
+# ResourceQuota caps the namespace-wide total. A cluster admin applies
+# these once per namespace; they aren't shipped as part of a workload
+# manifest or a Rego policy.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-container-limits
+  namespace: data-platform
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:
+        cpu: "100m"
+        memory: "128Mi"
+      max:
+        cpu: "4"
+        memory: "8Gi"
+      min:
+        cpu: "10m"
+        memory: "16Mi"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: namespace-aggregate-ceiling
+  namespace: data-platform
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: "32Gi"
+    limits.cpu: "40"
+    limits.memory: "64Gi"
+    pods: "50"

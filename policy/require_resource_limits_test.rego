@@ -133,6 +133,20 @@ test_sub_milli_cpu_precision_is_a_known_scope_boundary_not_denied if {
 	count(deny) == 0 with input as mock_input
 }
 
+# Documents a known, accepted scope boundary, not a bug: this check is
+# manifest hygiene (positive, syntactically valid), not resource
+# governance. It cannot and does not reject an absurd single value -
+# that's what LimitRange is for, a separate Kubernetes object this
+# policy set doesn't enforce. Confirmed directly: both pass.
+test_absurd_but_syntactically_valid_quantities_are_a_known_scope_boundary_not_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {"containers": [{"name": "app", "resources": {"limits": {"cpu": "1E", "memory": "1Ei"}}}]},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
 test_positive_unquoted_number_allowed if {
 	mock_input := {
 		"kind": "Pod",

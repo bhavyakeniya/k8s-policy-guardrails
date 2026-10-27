@@ -26,7 +26,7 @@ record. This README states only the resulting current behavior.
 | Deny `allowPrivilegeEscalation` (Linux pods only) | `policy/deny_privilege_escalation.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Deny `hostNetwork` / `hostPID` / `hostIPC` | `policy/deny_host_namespaces.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require non-root containers, including cross-checking `runAsUser: 0` against `runAsNonRoot` at both pod and container level | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
-| Require positive, syntactically valid Kubernetes Quantity CPU/memory limits (regular/init containers only) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
+| Require positive, syntactically valid Kubernetes Quantity CPU/memory limits (manifest hygiene, not resource governance - see Known limitations) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
 | Workload Identity annotation format (not full wiring) | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene) |
 | Reject collection-shaped input (`List`, `PodList`, `DeploymentList`, ...) | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
 
@@ -68,6 +68,20 @@ indirectly through whichever shape an individual policy's test happens to use.
   full Kubernetes semantics.** `cpu: "0.0005"` is finer than Kubernetes' documented
   1m/0.001 CPU precision floor, and passes both this check and kubeconform - confirmed
   directly. Server-side CPU-precision semantics are out of scope here.
+- **The resource-limits check is manifest hygiene, not resource governance.** An
+  absurd single value (`cpu: "1E"`, `memory: "1Ei"`) passes - confirmed directly - and
+  no per-Pod policy can constrain aggregate consumption across replicas or a
+  namespace. Kubernetes' own mechanisms for those problems, `LimitRange` and
+  `ResourceQuota`, are illustrated (not enforced by this repo) in
+  `examples/reference/limitrange-resourcequota.yaml`.
+- **`GOOGLE_APPLICATION_CREDENTIALS` is banned outright, not detected as a static
+  key.** Confirmed against Google's own ADC docs: this env var can legitimately point
+  at a Workload/Workforce Identity Federation config containing no key material at
+  all, not only a service-account key - an earlier version of this policy's message
+  claimed to have found "a mounted key" regardless, which it can't actually prove
+  from the path alone. The policy still denies any use of this env var (file-based
+  ADC of any kind is disallowed in favor of GKE's native Workload Identity), but says
+  so plainly instead of overclaiming what it detected.
 
 ## Architecture
 
@@ -81,31 +95,26 @@ pod specs across Pod/Deployment/StatefulSet/DaemonSet/Job/CronJob shapes) live o
 ## Quick start
 
 ```bash
-brew install opa conftest
+brew install opa conftest kubeconform
 
-# Run the unit tests for every policy
-opa test policy/ -v
+./scripts/verify.sh
+```
 
-# Check a manifest against every policy package
+`scripts/verify.sh` is the single entry point both local dev and CI use - CI's
+workflow calls exactly this script, so "it passed locally" and "it passed in CI" mean
+the same thing. An earlier version of this README only told you to run `opa test`,
+which is a small fraction of what's actually enforced (kubeconform, `opa fmt`,
+`opa check --strict`, the coverage threshold, the exact-fixture assertion) - confirmed
+directly by diffing the two before fixing it.
+
+To check a single manifest directly:
+
+```bash
 conftest test --all-namespaces path/to/manifest.yaml --policy policy
 ```
 
 `examples/fail/` holds one isolated fixture per policy; `examples/pass/` holds
-manifests that must pass every policy. What CI actually asserts - exact namespace per
-fixture, not just a non-zero exit:
-
-```bash
-python3 scripts/assert_policy_coverage.py --policy-dir policy --fail-dir examples/fail \
-  --map examples/fail/privileged.yaml=policies.privileged \
-  --map examples/fail/privilege-escalation.yaml=policies.privilege_escalation \
-  --map examples/fail/host-namespaces.yaml=policies.host_namespaces \
-  --map examples/fail/non-root.yaml=policies.non_root \
-  --map examples/fail/resource-limits.yaml=policies.resource_limits \
-  --map examples/fail/static-gcp-key.yaml=policies.static_gcp_key \
-  --map examples/fail/malformed-workload-identity-annotation.yaml=policies.static_gcp_key \
-  --map examples/fail/list-input.yaml=policies.reject_list_input \
-  --pass-glob 'examples/pass/*.yaml'
-```
+manifests that must pass every policy.
 
 ## Project structure
 
@@ -124,9 +133,12 @@ policy/
 examples/
   fail/                           # one isolated fixture per policy
   pass/                           # manifests that must pass every policy
-scripts/assert_policy_coverage.py # asserts exact namespace per fixture
+  reference/                      # illustrative only - not enforced or validated by CI
+scripts/
+  verify.sh                       # the one entry point local dev and CI both run
+  assert_policy_coverage.py       # asserts exact namespace per fixture, and completeness
 docs/review-history.md             # detailed record of external review findings
-.github/workflows/ci.yml           # fmt/check/test/coverage/exact-fixture gates
+.github/workflows/ci.yml           # installs pinned tools, then calls scripts/verify.sh
 ```
 
 ## CI
@@ -134,12 +146,13 @@ docs/review-history.md             # detailed record of external review findings
 `.github/workflows/ci.yml` runs with `permissions: contents: read` and a 10-minute
 timeout on a pinned `ubuntu-24.04` runner. It installs checksum-verified OPA,
 conftest, and [kubeconform](https://github.com/yannh/kubeconform) binaries and a
-SHA-pinned `actions/checkout`, runs `kubeconform -strict` (pinned to an exact
-Kubernetes version and an immutable schema-repo commit, not kubeconform's mutable
-`master` defaults) against every example manifest for structural schema validation -
-it does **not** validate Kubernetes quantity string format, see Known limitations -
-runs `opa fmt --fail` and `opa check
---strict`, runs the unit test suite with a 95% coverage gate computed from
-production `.rego` files only, then runs `scripts/assert_policy_coverage.py` to
-assert each fail fixture trips its own exact policy namespace and each pass fixture
-is clean everywhere.
+SHA-pinned `actions/checkout`, then calls `scripts/verify.sh` - the same script a
+local run uses - which runs `kubeconform -strict` (pinned to an exact Kubernetes
+version and an immutable schema-repo commit, not kubeconform's mutable `master`
+defaults; it does **not** validate Kubernetes quantity string format, see Known
+limitations), `opa fmt --fail`, `opa check --strict`, the unit test suite with a 95%
+coverage gate computed from production `.rego` files only, and
+`scripts/assert_policy_coverage.py` to assert each fail fixture trips its own exact
+policy namespace, each pass fixture is clean everywhere, and the fixture-to-policy
+mapping itself is complete (every `policies.*` package has a fixture, every fixture
+file has a mapping).

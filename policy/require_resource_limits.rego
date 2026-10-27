@@ -7,9 +7,22 @@ import data.common
 # than assumed, and they cover host namespaces, privileged, capabilities,
 # non-root, privilege escalation, seccomp and volume types, not resource
 # quotas. This aligns with the separate Kubernetes security checklist's
-# resource-management guidance instead: every container must declare both
-# CPU and memory limits, the value must be a well-formed Kubernetes
-# quantity, and it must be positive, so a bad deploy can't starve its node.
+# resource-management guidance instead.
+#
+# Scope: this is manifest hygiene, not resource governance. It requires
+# every container to declare a positive, syntactically valid CPU/memory
+# limit - that's it. It does NOT stop an absurd single value
+# (cpu: "1E", memory: "1Ei" both pass - confirmed directly, a trillion
+# cores is just as syntactically valid as one), and it CANNOT constrain
+# aggregate consumption across replicas or a namespace - no single-Pod
+# policy can, since that requires comparing against every other workload
+# in the namespace at once. Kubernetes' own mechanisms for those two
+# problems are LimitRange (per-container/per-Pod min/max ceilings) and
+# ResourceQuota (aggregate namespace-wide ceilings) - see
+# examples/reference/limitrange-resourcequota.yaml for illustrative
+# examples. Neither is a Pod-level admission policy, so neither is
+# something this OPA policy set enforces; they're applied once per
+# namespace by a cluster admin, not shipped as Rego.
 #
 # A bare "the key exists" check is not enough - confirmed directly:
 # limits: {cpu: "0", memory: "0"} passed this policy before the quantity

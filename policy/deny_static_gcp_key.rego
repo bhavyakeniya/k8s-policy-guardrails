@@ -17,11 +17,27 @@ import data.common
 # `type`/`data` keys against every Pod that mounts it - out of scope for
 # this repo, called out here rather than silently left unfixed.
 
+# This is a blanket ban on file-based ADC via GOOGLE_APPLICATION_CREDENTIALS,
+# not static-key detection - that distinction matters and was wrong before.
+# Confirmed against Google's own ADC docs: this env var can legitimately
+# point at a Workload Identity Federation or Workforce Identity Federation
+# credential config file containing no secret key material at all, not
+# only a service-account key. Reproduced directly:
+# /var/run/google/wif-credential-config.json - a legitimate federation
+# config - was rejected with a message claiming it was "a mounted key,"
+# which the policy cannot actually prove from the path alone. GKE's
+# native Workload Identity (the metadata-server mechanism, checked by the
+# ServiceAccount annotation rule below) needs no file on disk at all, so
+# this policy takes the stricter position that ANY file-based ADC
+# mechanism - key or legitimate federation config alike - is disallowed,
+# since a mounted credential-config file is still a mountable attack
+# surface the metadata-server mechanism doesn't have. The message says
+# that plainly instead of claiming to have detected a key specifically.
 deny contains msg if {
 	container := common.security_relevant_containers[_]
 	env := container.env[_]
 	env.name == "GOOGLE_APPLICATION_CREDENTIALS"
-	msg := sprintf("%s/%s: container %q sets GOOGLE_APPLICATION_CREDENTIALS; use Workload Identity Federation instead of a mounted key", [input.kind, common.name, container.name])
+	msg := sprintf("%s/%s: container %q sets GOOGLE_APPLICATION_CREDENTIALS - file-based ADC of any kind (service-account key or Workload/Workforce Identity Federation config) is disallowed in favor of GKE's native Workload Identity, which needs no credential file on disk", [input.kind, common.name, container.name])
 }
 
 static_key_name_patterns := ["gcp-key", "service-account-key", "sa-key", "key.json"]
@@ -44,6 +60,45 @@ secret_volume_names contains name if {
 	volume := spec.volumes[_]
 	source := volume.projected.sources[_]
 	name := source.secret.name
+}
+
+# A Secret's own name isn't the only visible, suspicious filename in a
+# manifest - secret.items[]/projected source.secret.items[] can rename a
+# key to an explicit path inside the pod's filesystem, and that explicit
+# filename is right there in the manifest, not hidden Secret content.
+# Confirmed directly: secretName: db-creds with
+# items: [{key: sa.json, path: key.json}] produced zero violations, even
+# though "key.json" is visible in the same volume block. Both the source
+# key and the mounted path get checked - either one naming the pattern is
+# a real signal regardless of which field the author used.
+secret_volume_names contains name if {
+	spec := common.all_pod_specs[_]
+	volume := spec.volumes[_]
+	item := volume.secret.items[_]
+	name := item.key
+}
+
+secret_volume_names contains name if {
+	spec := common.all_pod_specs[_]
+	volume := spec.volumes[_]
+	item := volume.secret.items[_]
+	name := item.path
+}
+
+secret_volume_names contains name if {
+	spec := common.all_pod_specs[_]
+	volume := spec.volumes[_]
+	source := volume.projected.sources[_]
+	item := source.secret.items[_]
+	name := item.key
+}
+
+secret_volume_names contains name if {
+	spec := common.all_pod_specs[_]
+	volume := spec.volumes[_]
+	source := volume.projected.sources[_]
+	item := source.secret.items[_]
+	name := item.path
 }
 
 # Token-boundary matched, not a plain substring - confirmed directly as a
@@ -72,7 +127,7 @@ suspicious_secret_names contains name if {
 
 deny contains msg if {
 	name := suspicious_secret_names[_]
-	msg := sprintf("%s/%s: a volume mounts secret %q, matching a static-key naming pattern; use Workload Identity Federation instead of a static key", [input.kind, common.name, name])
+	msg := sprintf("%s/%s: a volume references %q (as a Secret name, an items[].key, or an items[].path), matching a static-key naming pattern; use Workload Identity Federation instead of a static key", [input.kind, common.name, name])
 }
 
 # deny_malformed_workload_identity_annotation, not

@@ -57,9 +57,11 @@ def check_no_exceptions(report, path):
 def production_policy_packages(policy_dir):
     """Every policies.* package declared in a non-test .rego file. Derived
     from the source, not hardcoded, so a new policy file with no mapping
-    shows up as a real gap instead of silently passing."""
+    shows up as a real gap instead of silently passing. Recursive -
+    discovery used to be top-level only, so a policy added in a
+    subdirectory could silently escape this gate entirely."""
     packages = set()
-    for path in glob.glob(os.path.join(policy_dir, "*.rego")):
+    for path in glob.glob(os.path.join(policy_dir, "**", "*.rego"), recursive=True):
         if path.endswith("_test.rego"):
             continue
         with open(path) as f:
@@ -99,8 +101,12 @@ def main():
 
     # Completeness check 2: every file actually present in --fail-dir must
     # be a --map key. Confirmed directly: omitting a mapping for a fixture
-    # that still exists on disk used to exit 0 silently.
-    actual_fail_files = set(glob.glob(os.path.join(args.fail_dir, "*.yaml")))
+    # that still exists on disk used to exit 0 silently. Recursive and
+    # .yml-inclusive, same reasoning as production_policy_packages above.
+    actual_fail_files = set(
+        glob.glob(os.path.join(args.fail_dir, "**", "*.yaml"), recursive=True)
+        + glob.glob(os.path.join(args.fail_dir, "**", "*.yml"), recursive=True)
+    )
     missing_files = actual_fail_files - set(mapped_files.keys())
     if missing_files:
         print(f"FAIL: these fixture files exist in {args.fail_dir} but have no --map entry: "
@@ -123,7 +129,7 @@ def main():
 
     pass_files = []
     for g in args.pass_globs:
-        pass_files.extend(sorted(glob.glob(g)))
+        pass_files.extend(sorted(glob.glob(g, recursive=True)))
     if not pass_files:
         # A glob matching nothing used to let the loop below just not
         # run, leaving ok untouched and the script exit 0 - a silent,

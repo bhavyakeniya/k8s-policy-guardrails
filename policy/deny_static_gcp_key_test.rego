@@ -9,6 +9,19 @@ test_google_application_credentials_env_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# Reproduced directly: this path is a legitimate Workload Identity
+# Federation config, not a static key - confirmed against Google's own
+# ADC docs. Still denied, but the message now says this is a blanket
+# file-based-ADC ban, not a claim that a key was detected.
+test_google_application_credentials_pointing_at_wif_config_still_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {"containers": [{"name": "app", "env": [{"name": "GOOGLE_APPLICATION_CREDENTIALS", "value": "/var/run/google/wif-credential-config.json"}]}]},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
 test_gcp_key_secret_volume_denied if {
 	mock_input := {
 		"kind": "Pod",
@@ -46,6 +59,57 @@ test_gcp_key_projected_secret_volume_in_deployment_template_denied if {
 		}}},
 	}
 	count(deny) > 0 with input as mock_input
+}
+
+# Confirmed as a real bypass before items[] inspection existed: the
+# suspicious filename was already visible in the manifest, just not in
+# secretName.
+test_direct_secret_items_key_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "gcp-key", "path": "irrelevant.txt"}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_direct_secret_items_path_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "irrelevant", "path": "key.json"}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_projected_secret_items_path_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "projected": {"sources": [{"secret": {"name": "db-creds", "items": [{"key": "irrelevant", "path": "key.json"}]}}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_secret_items_without_suspicious_names_allowed if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "username", "path": "username.txt"}]}}],
+		},
+	}
+	count(deny) == 0 with input as mock_input
 }
 
 test_projected_volume_with_non_secret_source_allowed if {
