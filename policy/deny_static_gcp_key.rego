@@ -57,11 +57,22 @@ secret_volume_names contains name if {
 	name := item.key
 }
 
+# items[].path can contain directory components (e.g. "my-group/key.json"
+# - Kubernetes explicitly supports this), so the filename that actually
+# carries a suspicious name can be preceded by "/" rather than a
+# "-"/"."/"_" boundary. basename() takes the last path segment before the
+# naming check runs, same as it would for a Secret name or a bare key
+# with no "/" in it at all.
+basename(path) := result if {
+	parts := split(path, "/")
+	result := parts[count(parts) - 1]
+}
+
 secret_volume_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	item := volume.secret.items[_]
-	name := item.path
+	name := basename(item.path)
 }
 
 secret_volume_names contains name if {
@@ -77,20 +88,22 @@ secret_volume_names contains name if {
 	volume := spec.volumes[_]
 	source := volume.projected.sources[_]
 	item := source.secret.items[_]
-	name := item.path
+	name := basename(item.path)
 }
 
-# Token-boundary matched, not a plain substring: "(^|[-.])pattern([-.]|$)"
+# Token-boundary matched, not a plain substring: "(^|[-._])pattern([-._]|$)"
 # requires the pattern to be its own token delimited by the name's
-# start/end or a "-"/".", so e.g. "tls-rsa-key" doesn't match "sa-key" the
-# way "my-gcp-key" matches "gcp-key". suspicious_secret_names is a SET of
-# names, not of (name, pattern) pairs, so a name matching several
+# start/end or a "-"/"."/"_", so e.g. "tls-rsa-key" doesn't match "sa-key"
+# the way "my-gcp-key" matches "gcp-key" - "_" is included because
+# Secret/ConfigMap item keys allow it even though Secret object names
+# don't ("prod_sa-key" is a valid key). suspicious_secret_names is a SET
+# of names, not of (name, pattern) pairs, so a name matching several
 # patterns at once (e.g. "gcp-key.json") still produces one violation.
 suspicious_secret_names contains name if {
 	name := secret_volume_names[_]
 	pattern := static_key_name_patterns[_]
 	escaped_pattern := regex.replace(pattern, `\.`, `\.`)
-	regex.match(sprintf(`(^|[-.])%s([-.]|$)`, [escaped_pattern]), lower(name))
+	regex.match(sprintf(`(^|[-._])%s([-._]|$)`, [escaped_pattern]), lower(name))
 }
 
 deny contains msg if {

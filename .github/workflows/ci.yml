@@ -8,31 +8,26 @@ on:
 permissions:
   contents: read
 
-env:
-  OPA_VERSION: "1.21.1"
-  OPA_SHA256: "668506eb17a2eaa1fce6cc0d1f42ef85125d4ac5bda5fc74d1152d0c77145031"
-  CONFTEST_VERSION: "0.71.1"
-  CONFTEST_SHA256: "c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985"
-  KUBECONFORM_VERSION: "0.8.0"
-  KUBECONFORM_SHA256: "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883"
-  # kubeconform defaults to -kubernetes-version master and a schema
-  # location on its schema repo's mutable master branch - confirmed
-  # directly against kubeconform's own docs: both defaults track moving
-  # targets, so the same commit here could start passing or failing with
-  # no change to this repository. Pinned to an exact Kubernetes version
-  # and an immutable commit SHA of the schema repo instead. The version
-  # itself must stay a currently-supported release, not just pinned -
-  # 1.31 reached end of life 2025-11-11; confirmed directly (HTTP 200 on
-  # the exact schema URL) that 1.37.1 is available at this same commit.
-  KUBECONFORM_TARGET_K8S_VERSION: "1.37.1"
-  KUBECONFORM_SCHEMA_COMMIT: "f7d855e49c34b039c9ef2196444910275e31e09e"
-
 jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # scripts/tool-versions.sh is the single source of truth for every
+      # pinned version/checksum - verify.sh enforces the same versions
+      # against whatever's actually installed, so CI and a local run
+      # can't silently drift (confirmed as a real gap: local OPA was
+      # 1.21.3 while CI pinned 1.21.1, unchecked either side).
+      - name: Load pinned tool versions
+        run: |
+          source scripts/tool-versions.sh
+          for v in OPA_VERSION OPA_SHA256 CONFTEST_VERSION CONFTEST_SHA256 \
+                   KUBECONFORM_VERSION KUBECONFORM_SHA256 \
+                   KUBECONFORM_TARGET_K8S_VERSION KUBECONFORM_SCHEMA_COMMIT; do
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
 
       - name: Install OPA (checksum-verified)
         run: |

@@ -100,6 +100,58 @@ test_projected_secret_items_path_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# Confirmed as a real bypass before basename extraction existed:
+# Kubernetes explicitly supports directory components in items[].path.
+test_nested_secret_path_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "credential", "path": "google/key.json"}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_deeply_nested_secret_path_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "projected": {"sources": [{"secret": {"name": "db-creds", "items": [{"key": "irrelevant", "path": "a/b/c/gcp-key"}]}}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_nested_path_without_suspicious_basename_allowed if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "credential", "path": "google/username.txt"}]}}],
+		},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
+# Confirmed as a real bypass before "_" was a boundary character: Secret
+# item keys allow underscores even though Secret object names don't.
+test_underscore_delimited_key_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"volumes": [{"name": "creds", "secret": {"secretName": "db-creds", "items": [{"key": "prod_sa-key", "path": "irrelevant.txt"}]}}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
 test_secret_items_without_suspicious_names_allowed if {
 	mock_input := {
 		"kind": "Pod",

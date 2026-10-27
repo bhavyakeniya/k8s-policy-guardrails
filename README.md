@@ -59,10 +59,11 @@ indirectly through whichever shape an individual policy's test happens to use.
   configured end-to-end** - it validates annotation format only.
 - **There is currently no exception mechanism** - governed or otherwise.
 - **These policies assume schema-valid input.** CI enforces that with `kubeconform
-  -strict` against every example manifest, pinned to an exact Kubernetes version and
-  an immutable schema-repo commit (kubeconform's defaults - `-kubernetes-version
-  master` and its schema repo's `master` branch - are both moving targets, confirmed
-  against kubeconform's own docs). A user running `conftest` directly against a
+  -strict` against every example manifest (including `examples/reference/`, which
+  carries no policy assertions but still must stay schema-valid), pinned to an exact
+  Kubernetes version and an immutable schema-repo commit - kubeconform's own defaults
+  (`-kubernetes-version master`, and its schema repo's `master` branch) are both
+  moving targets. A user running `conftest` directly against a
   hand-edited manifest that skips that step is on their own for structural validity.
 - **CPU/memory limits are validated as positive and syntactically well-formed, not
   full Kubernetes semantics.** `cpu: "0.0005"` is finer than Kubernetes' documented
@@ -101,11 +102,12 @@ brew install opa conftest kubeconform
 ```
 
 `scripts/verify.sh` is the single entry point both local dev and CI use - CI's
-workflow calls exactly this script, so "it passed locally" and "it passed in CI" mean
-the same thing. An earlier version of this README only told you to run `opa test`,
-which is a small fraction of what's actually enforced (kubeconform, `opa fmt`,
-`opa check --strict`, the coverage threshold, the exact-fixture assertion) - confirmed
-directly by diffing the two before fixing it.
+workflow calls exactly this script, running every gate (kubeconform, `opa fmt`,
+`opa check --strict`, the coverage threshold, the exact-fixture assertion), not just
+`opa test`. It also checks the installed `opa`/`conftest`/`kubeconform` versions
+against `scripts/tool-versions.sh` - the single file both this script and CI read -
+and fails loudly on a mismatch, since "passed locally" and "passed in CI" only mean
+the same thing if the tool versions actually match.
 
 To check a single manifest directly:
 
@@ -133,9 +135,10 @@ policy/
 examples/
   fail/                           # one isolated fixture per policy
   pass/                           # manifests that must pass every policy
-  reference/                      # illustrative only - not enforced or validated by CI
+  reference/                      # illustrative only - schema-checked by kubeconform, no policy assertions
 scripts/
   verify.sh                       # the one entry point local dev and CI both run
+  tool-versions.sh                # single source of truth for pinned versions/checksums
   assert_policy_coverage.py       # asserts exact namespace per fixture, and completeness
 docs/review-history.md             # detailed record of external review findings
 .github/workflows/ci.yml           # installs pinned tools, then calls scripts/verify.sh
