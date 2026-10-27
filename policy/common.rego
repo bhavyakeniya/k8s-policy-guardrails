@@ -6,14 +6,10 @@ package common
 # StatefulSet, DaemonSet, Job, CronJob's jobTemplate).
 
 # Falls back through name -> generateName -> a constant placeholder.
-# metadata.generateName without metadata.name is valid, server-generated-name
-# Kubernetes - confirmed directly: a Pod using generateName with
-# hostNetwork, privileged, escalation, and a static credential passed every
-# policy clean before this fallback existed, because name was undefined,
-# which made every sprintf using it undefined, which made every deny rule
-# referencing it silently disappear. Detection must never depend on a value
-# that's only needed for display - same lesson as deny_public_iam_principal
-# in the gcp-iam-baseline repo, missed here the first time around.
+# metadata.generateName without metadata.name is valid, server-generated-
+# name Kubernetes; detection must never depend on a value only needed for
+# display, or every sprintf building a violation message goes undefined
+# along with it.
 name := object.get(input.metadata, "name", object.get(input.metadata, "generateName", "<unnamed>"))
 
 # Containers where security-context fields (privileged, allowPrivilegeEscalation,
@@ -27,21 +23,15 @@ security_relevant_containers contains c if {
 	c := input.spec.ephemeralContainers[_]
 }
 
-# Deployment-shaped ephemeral containers are deliberately NOT included here.
-# Confirmed against Kubernetes' own docs: ephemeral containers can only be
-# added to an already-running Pod through the dedicated ephemeralcontainers
-# subresource, never declared upfront in a Deployment's PodTemplateSpec at
-# pod-creation time. A field there is structurally meaningless, not a real
-# input shape this repo needs to support.
+# Deployment-shaped ephemeral containers are deliberately not included:
+# Kubernetes only adds ephemeral containers to an already-running Pod via
+# the dedicated ephemeralcontainers subresource, never upfront in a
+# Deployment's PodTemplateSpec at pod-creation time.
 
 # Containers where resources.limits is a meaningful field to require.
-# Ephemeral containers are deliberately excluded - confirmed against
-# Kubernetes' own ephemeral-container design: the API server forbids a
-# `resources` field on an ephemeral container outright, so a policy that
-# required it would make every manifest containing a debug ephemeral
-# container permanently, unfixably non-compliant. Verified directly: an
-# otherwise fully-hardened Pod failed only because its ephemeral debugger
-# lacked resources.limits, a field Kubernetes itself does not let it have.
+# Ephemeral containers are excluded: the API server forbids a `resources`
+# field on them outright, so requiring one would make any manifest with a
+# debug ephemeral container permanently, unfixably non-compliant.
 resource_managed_containers contains c if {
 	c := regular_or_init_containers[_]
 }
@@ -78,26 +68,18 @@ pod_runs_as_non_root if {
 	s.securityContext.runAsNonRoot == true
 }
 
-# True when any pod-shaped spec on this manifest sets runAsUser: 0 at the
-# pod level - explicit root, which directly contradicts runAsNonRoot and
-# which Kubernetes' Restricted Pod Security Standard separately
-# prohibits. Confirmed directly: a Pod with pod-level runAsNonRoot: true
-# AND a container explicitly setting runAsUser: 0 passed every policy in
-# this repo clean - runAsNonRoot being a boolean flag was never cross-
-# checked against an explicit root UID contradicting it.
+# True when any pod-shaped spec sets runAsUser: 0 - explicit root, which
+# directly contradicts runAsNonRoot and which Kubernetes' Restricted Pod
+# Security Standard separately prohibits regardless of that flag.
 pod_run_as_user_is_zero if {
 	some s in all_pod_specs
 	s.securityContext.runAsUser == 0
 }
 
 # True when this manifest declares a Windows pod (spec.os.name: windows).
-# Matters for allowPrivilegeEscalation specifically: confirmed against
-# Kubernetes' own Pod Security Standards docs, a Windows Pod is REJECTED
-# by the API server outright if allowPrivilegeEscalation is set at all -
-# true or false, doesn't matter, Windows has no privilege-escalation
-# concept to toggle. A policy that requires setting it to false would
-# demand the one thing the real API server forbids for a legitimate
-# Windows workload.
+# Matters for allowPrivilegeEscalation specifically: the API server
+# rejects a Windows Pod outright if that field is set at all, true or
+# false, since Windows has no privilege-escalation concept to toggle.
 is_windows_pod if {
 	some s in all_pod_specs
 	s.os.name == "windows"

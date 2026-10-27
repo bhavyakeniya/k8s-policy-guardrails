@@ -3,61 +3,47 @@ package policies.resource_limits
 import data.common
 
 # Resource limits are NOT a Kubernetes Pod Security Standards control -
-# checked against the official PSS baseline/restricted profile lists rather
-# than assumed, and they cover host namespaces, privileged, capabilities,
-# non-root, privilege escalation, seccomp and volume types, not resource
-# quotas. This aligns with the separate Kubernetes security checklist's
-# resource-management guidance instead.
+# checked against the official PSS baseline/restricted profile lists
+# rather than assumed; PSS covers host namespaces, privileged,
+# capabilities, non-root, privilege escalation, seccomp and volume types,
+# not resource quotas. This aligns with the separate Kubernetes security
+# checklist's resource-management guidance instead.
 #
-# Scope: this is manifest hygiene, not resource governance. It requires
-# every container to declare a positive, syntactically valid CPU/memory
-# limit - that's it. It does NOT stop an absurd single value
-# (cpu: "1E", memory: "1Ei" both pass - confirmed directly, a trillion
-# cores is just as syntactically valid as one), and it CANNOT constrain
-# aggregate consumption across replicas or a namespace - no single-Pod
-# policy can, since that requires comparing against every other workload
-# in the namespace at once. Kubernetes' own mechanisms for those two
-# problems are LimitRange (per-container/per-Pod min/max ceilings) and
-# ResourceQuota (aggregate namespace-wide ceilings) - see
-# examples/reference/limitrange-resourcequota.yaml for illustrative
-# examples. Neither is a Pod-level admission policy, so neither is
-# something this OPA policy set enforces; they're applied once per
-# namespace by a cluster admin, not shipped as Rego.
+# Scope: manifest hygiene, not resource governance. Requires a positive,
+# syntactically valid CPU/memory limit on every container - nothing more.
+# It does not reject an absurd single value (cpu: "1E" is just as valid
+# syntactically as "1"), and no single-Pod policy can constrain aggregate
+# consumption across replicas or a namespace, since that requires
+# comparing against every other workload at once. Kubernetes' own
+# mechanisms for those two problems are LimitRange (per-container/per-Pod
+# ceilings) and ResourceQuota (namespace-wide aggregate ceilings) - see
+# examples/reference/limitrange-resourcequota.yaml for illustrative,
+# unenforced examples; a cluster admin applies these once per namespace,
+# not as part of a workload manifest or this OPA policy set.
 #
-# A bare "the key exists" check is not enough - confirmed directly:
-# limits: {cpu: "0", memory: "0"} passed this policy before the quantity
-# check existed. Kubernetes' own validation only rejects NEGATIVE
-# quantities, and the kubelet treats a zero limit as effectively
-# unlimited, so "0" is a valid Kubernetes value that defeats the entire
-# point of requiring a limit.
+# A bare "the key exists" check is not enough: limits: {cpu: "0"} is a
+# valid Kubernetes value (validation only rejects negative quantities,
+# and the kubelet treats zero as effectively unlimited), which would
+# defeat the entire point of requiring a limit. quantity_pattern below
+# anchors the ENTIRE value against Kubernetes' actual quantity grammar
+# (signed number, then an optional suffix from the specific
+# binarySI/decimalSI/exponent set Kubernetes defines) rather than just
+# extracting a leading numeric prefix, which would accept "1garbage" or
+# "1MiB" (not a real suffix - the real one is "Mi"). This validates shape
+# and sign, not full unit-conversion arithmetic (it never turns "0.5Gi"
+# into a byte count) - deliberately scoped short of reimplementing
+# Kubernetes' Quantity parser. kubeconform does not fill this gap either:
+# it types resources.limits.cpu/memory as a plain OpenAPI string with no
+# format constraint, so malformed quantities pass it too.
 #
-# Format matters too, not just magnitude - confirmed directly: "1garbage",
-# "1MiB" (not a real suffix - the real one is "Mi"), and "1e" (exponent
-# notation needs digits after the e) all passed a first version of this
-# check that only extracted the leading numeric prefix and ignored
-# whatever followed it. kubeconform does NOT catch this class of mistake
-# either - checked directly: it reports cpu: "1garbage" as valid, because
-# the Kubernetes OpenAPI schema types resources.limits.cpu as a plain
-# string with no format/pattern constraint; the real apiserver only
-# rejects a malformed quantity string during semantic admission, a step
-# schema validation doesn't perform. quantity_pattern below anchors the
-# ENTIRE value against Kubernetes' actual quantity grammar (signed number,
-# then an optional suffix from the specific binarySI/decimalSI/exponent
-# set Kubernetes defines - not a free-form unit) rather than reimplementing
-# full unit-conversion arithmetic, which this check deliberately does not
-# attempt: it is validating shape and sign, not converting "0.5Gi" into
-# bytes.
-#
-# Explicit scope boundary: this validates that a quantity is positive and
-# SYNTACTICALLY well-formed, not full Kubernetes CPU semantics.
-# cpu: "0.0005" (finer than Kubernetes' documented 1m/0.001 CPU precision)
-# passes both this check and kubeconform - confirmed directly, neither
-# treats it as invalid, because Kubernetes' own handling of sub-milli CPU
-# precision is internal truncation/rounding behavior in apimachinery, not
-# a clearly-documented hard admission rejection this repo could point to
-# and reproduce with confidence. Enforcing a specific CPU-only precision
-# rule on top of the general quantity grammar would be real, separate
-# scope - not attempted here rather than guessed at.
+# Explicit scope boundary: this validates positive and syntactically
+# well-formed, not full Kubernetes CPU semantics. cpu: "0.0005" is finer
+# than Kubernetes' documented 1m/0.001 CPU precision floor and passes -
+# Kubernetes' own handling of sub-milli precision is internal
+# truncation/rounding in apimachinery, not a clearly-documented hard
+# admission rejection this repo could reproduce with confidence, so
+# CPU-specific precision enforcement isn't attempted on top of the
+# general quantity grammar.
 deny contains msg if {
 	container := common.resource_managed_containers[_]
 	not has_valid_positive_quantity(container, "cpu")

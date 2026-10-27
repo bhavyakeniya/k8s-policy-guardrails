@@ -24,16 +24,13 @@ container_is_non_root(container) if {
 	common.pod_runs_as_non_root
 }
 
-# runAsNonRoot is a boolean flag; it was never cross-checked against an
-# explicit UID actually contradicting it. Confirmed directly: a Pod with
-# pod-level runAsNonRoot: true AND a container explicitly setting
-# runAsUser: 0 passed every policy in this repo clean - kubeconform
-# accepts it, a server-side dry-run accepts it (the kubelet would
-# ultimately refuse to start the container, so this isn't a runtime
-# privilege bypass, but it is a real CI false negative for a policy
-# literally named "require non-root"), and Kubernetes' Restricted PSS
-# separately prohibits runAsUser: 0 regardless of runAsNonRoot. Checked at
-# both levels, covering regular/init/ephemeral containers via the same
+# runAsNonRoot is a boolean flag, cross-checked here against an explicit
+# UID that would contradict it: runAsUser: 0 is root regardless of what
+# the flag claims, and Kubernetes' Restricted PSS separately prohibits it.
+# The kubelet would ultimately refuse to start such a container, so this
+# isn't a runtime privilege bypass, but a policy named "require non-root"
+# should still catch the contradiction. Checked at both pod and container
+# level, covering regular/init/ephemeral containers via the same
 # security_relevant_containers set everything else here uses.
 deny contains msg if {
 	container := common.security_relevant_containers[_]

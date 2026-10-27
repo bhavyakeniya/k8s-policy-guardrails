@@ -4,9 +4,8 @@ import data.common
 
 # CIS Kubernetes Benchmark, Pod Security Policies section ("minimize the
 # admission of privileged containers") - control numbering has shifted
-# across benchmark versions in ways that contradicted each other across
-# multiple sources I checked, so a specific X.Y.Z number isn't cited here;
-# verify against whichever benchmark version your org has actually adopted.
+# across benchmark versions, so no specific X.Y.Z number is cited here;
+# verify against whichever benchmark version your org has adopted.
 
 deny contains msg if {
 	container := common.security_relevant_containers[_]
