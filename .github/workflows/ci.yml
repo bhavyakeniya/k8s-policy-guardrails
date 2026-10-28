@@ -10,50 +10,30 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    strategy:
+      matrix:
+        # ubuntu covers linux/amd64 (what CI used to install inline);
+        # macos-14 is Apple Silicon (arm64) - adding it here is what
+        # actually exercises install-tools.sh's darwin/arm64 path for
+        # real, instead of trusting a checksum nobody's CI run has ever
+        # verified end-to-end.
+        os: [ubuntu-24.04, macos-14]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # scripts/tool-versions.sh is the single source of truth for every
-      # pinned version/checksum - verify.sh enforces the same versions
-      # against whatever's actually installed, so CI and a local run
-      # can't silently drift (confirmed as a real gap: local OPA was
-      # 1.21.3 while CI pinned 1.21.1, unchecked either side).
-      - name: Load pinned tool versions
+      # Calls the same script a local run uses, instead of duplicating
+      # curl+checksum+install logic inline - confirmed as a real gap
+      # before this: CI had its own hardcoded linux/amd64 install steps
+      # that never touched install-tools.sh at all, so a bug in that
+      # script's platform-detection or asset-naming could only ever be
+      # caught on a contributor's own machine, never in CI.
+      - name: Install opa/conftest/kubeconform (checksum-verified, same script local dev uses)
         run: |
-          source scripts/tool-versions.sh
-          for v in OPA_VERSION OPA_SHA256 CONFTEST_VERSION CONFTEST_SHA256 \
-                   KUBECONFORM_VERSION KUBECONFORM_SHA256 \
-                   KUBECONFORM_TARGET_K8S_VERSION KUBECONFORM_SCHEMA_COMMIT; do
-            echo "$v=${!v}" >> "$GITHUB_ENV"
-          done
-
-      - name: Install OPA (checksum-verified)
-        run: |
-          curl -fsSL -o opa \
-            "https://openpolicyagent.org/downloads/v${OPA_VERSION}/opa_linux_amd64_static"
-          echo "${OPA_SHA256}  opa" | sha256sum -c -
-          chmod +x opa
-          sudo mv opa /usr/local/bin/opa
-
-      - name: Install conftest (checksum-verified)
-        run: |
-          curl -fsSL -o conftest.tar.gz \
-            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
-          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
-          tar -xzf conftest.tar.gz conftest
-          chmod +x conftest
-          sudo mv conftest /usr/local/bin/conftest
-
-      - name: Install kubeconform (checksum-verified)
-        run: |
-          curl -fsSL -o kubeconform.tar.gz \
-            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
-          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
-          tar -xzf kubeconform.tar.gz kubeconform
-          chmod +x kubeconform
-          sudo mv kubeconform /usr/local/bin/kubeconform
+          mkdir -p "${RUNNER_TEMP}/bin"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          INSTALL_DIR="${RUNNER_TEMP}/bin" ./scripts/install-tools.sh
 
       - name: Run the same gates a local `scripts/verify.sh` run would
         run: ./scripts/verify.sh

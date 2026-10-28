@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # Installs the exact opa/conftest/kubeconform versions pinned in
 # scripts/tool-versions.sh, checksum-verified - the same install pattern
-# ci.yml uses, just for local dev platforms instead of only linux/amd64.
-# `brew install opa` installs whatever Homebrew's current formula happens
-# to be (1.21.4 the day this was written, already past the 1.21.3 this
-# repo pins by the time this sentence was tested) - re-pinning
-# scripts/tool-versions.sh doesn't fix that, since the next
-# `brew upgrade` just drifts again. This script always installs the
-# version this repo actually pins, regardless of what Homebrew currently
-# ships. Installs to INSTALL_DIR (default /usr/local/bin, override with
-# INSTALL_DIR=... for a non-sudo location already on PATH).
+# ci.yml uses (ci.yml calls this script directly rather than duplicating
+# the logic), just covering local dev platforms too, not only
+# linux/amd64. `brew install opa` installs whatever Homebrew's current
+# formula happens to be - re-pinning scripts/tool-versions.sh doesn't fix
+# that, since the next `brew upgrade` just drifts again. This script
+# always installs the version this repo actually pins, regardless of
+# what Homebrew currently ships. Installs to INSTALL_DIR (default
+# /usr/local/bin, override with INSTALL_DIR=... for a non-sudo location
+# already on PATH).
+#
+# Every checksum below is read from scripts/tool-versions.sh, not
+# hardcoded here - that file is the actual single source of truth across
+# every platform, not just the linux/amd64 values ci.yml happened to use
+# first.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 source scripts/tool-versions.sh
@@ -22,39 +27,39 @@ arch="$(uname -m)"
 
 case "${os}-${arch}" in
   Darwin-arm64)
-    OPA_SHA256="ee96aae344f45dd63044be2bedcba6391ca78402760b204a747331f421db74fe"
+    OPA_SHA256="${OPA_SHA256_DARWIN_ARM64}"
     OPA_ASSET="opa_darwin_arm64_static"
-    CONFTEST_SHA256="e1cc50d2590b6c5e3da6912666a71264bae82d60bdd62d7ae2b99971ccc8eedd"
+    CONFTEST_SHA256="${CONFTEST_SHA256_DARWIN_ARM64}"
     CONFTEST_ASSET="conftest_${CONFTEST_VERSION}_Darwin_arm64.tar.gz"
-    KUBECONFORM_SHA256="f84f4dfbebf4a6b0b230385fa065a39ea35e02608c2b50d025dcf64775a69d67"
+    KUBECONFORM_SHA256="${KUBECONFORM_SHA256_DARWIN_ARM64}"
     KUBECONFORM_ASSET="kubeconform-darwin-arm64.tar.gz"
     ;;
   Darwin-x86_64)
-    OPA_SHA256="3ef285e7e2cf57e6cb05142c33002e07d6791580a4ac14bac0a4e0880dfe073d"
+    OPA_SHA256="${OPA_SHA256_DARWIN_X86_64}"
     OPA_ASSET="opa_darwin_amd64"
-    CONFTEST_SHA256="a309853b5763c18486768157442d440248ee683b20a2aa1f6b28214e818bd780"
+    CONFTEST_SHA256="${CONFTEST_SHA256_DARWIN_X86_64}"
     CONFTEST_ASSET="conftest_${CONFTEST_VERSION}_Darwin_x86_64.tar.gz"
-    KUBECONFORM_SHA256="71dbc87ac9f24099a62b93570e65aa06312ba6ac8aea63b7f86e9d999edf5a92"
+    KUBECONFORM_SHA256="${KUBECONFORM_SHA256_DARWIN_X86_64}"
     KUBECONFORM_ASSET="kubeconform-darwin-amd64.tar.gz"
     ;;
   Linux-x86_64)
-    # OPA_SHA256/CONFTEST_SHA256/KUBECONFORM_SHA256 already hold the
-    # correct linux/amd64 values from tool-versions.sh (the same binaries
-    # ci.yml installs) - only the asset filenames need setting here.
+    OPA_SHA256="${OPA_SHA256_LINUX_X86_64}"
     OPA_ASSET="opa_linux_amd64_static"
+    CONFTEST_SHA256="${CONFTEST_SHA256_LINUX_X86_64}"
     CONFTEST_ASSET="conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+    KUBECONFORM_SHA256="${KUBECONFORM_SHA256_LINUX_X86_64}"
     KUBECONFORM_ASSET="kubeconform-linux-amd64.tar.gz"
     ;;
   Linux-aarch64|Linux-arm64)
-    OPA_SHA256="45c8734a41436bf21d82453c2aa7b0ad47c150e8237310b8665e8b5a01305fc0"
+    OPA_SHA256="${OPA_SHA256_LINUX_ARM64}"
     OPA_ASSET="opa_linux_arm64_static"
-    CONFTEST_SHA256="218c682e110ae7e826dc14a746a6f9b43eb782643dbe730b771fd305634e3f47"
+    CONFTEST_SHA256="${CONFTEST_SHA256_LINUX_ARM64}"
     CONFTEST_ASSET="conftest_${CONFTEST_VERSION}_Linux_arm64.tar.gz"
-    KUBECONFORM_SHA256="1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87"
+    KUBECONFORM_SHA256="${KUBECONFORM_SHA256_LINUX_ARM64}"
     KUBECONFORM_ASSET="kubeconform-linux-arm64.tar.gz"
     ;;
   *)
-    echo "FAIL: no pinned checksum for ${os}-${arch}. Add one to scripts/install-tools.sh" >&2
+    echo "FAIL: no pinned checksum for ${os}-${arch}. Add one to scripts/tool-versions.sh" >&2
     echo "      (opa/conftest/kubeconform all publish checksums per release - see their" >&2
     echo "      GitHub releases pages) rather than falling back to an unverified download." >&2
     exit 1
@@ -63,6 +68,19 @@ esac
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
+
+# sha256sum (GNU coreutils) is the Linux default; macOS has shasum -a 256
+# instead and no sha256sum unless Homebrew's coreutils happens to be
+# installed. Prefer sha256sum when present, since that's also what
+# ci.yml's checksum lines already use.
+verify_sha256() {
+  local expected="$1" file="$2"
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "${expected}  ${file}" | sha256sum -c -
+  else
+    echo "${expected}  ${file}" | shasum -a 256 -c -
+  fi
+}
 
 install_bin() {
   local src="$1" dest="$2"
@@ -75,14 +93,14 @@ install_bin() {
 
 echo "== opa ${OPA_VERSION} (${os}/${arch}) =="
 curl -fsSL -o "${tmp_dir}/opa" "https://openpolicyagent.org/downloads/v${OPA_VERSION}/${OPA_ASSET}"
-echo "${OPA_SHA256}  ${tmp_dir}/opa" | shasum -a 256 -c -
+verify_sha256 "${OPA_SHA256}" "${tmp_dir}/opa"
 chmod +x "${tmp_dir}/opa"
 install_bin "${tmp_dir}/opa" "${INSTALL_DIR}/opa"
 
 echo "== conftest ${CONFTEST_VERSION} (${os}/${arch}) =="
 curl -fsSL -o "${tmp_dir}/conftest.tar.gz" \
   "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/${CONFTEST_ASSET}"
-echo "${CONFTEST_SHA256}  ${tmp_dir}/conftest.tar.gz" | shasum -a 256 -c -
+verify_sha256 "${CONFTEST_SHA256}" "${tmp_dir}/conftest.tar.gz"
 tar -xzf "${tmp_dir}/conftest.tar.gz" -C "${tmp_dir}" conftest
 chmod +x "${tmp_dir}/conftest"
 install_bin "${tmp_dir}/conftest" "${INSTALL_DIR}/conftest"
@@ -90,7 +108,7 @@ install_bin "${tmp_dir}/conftest" "${INSTALL_DIR}/conftest"
 echo "== kubeconform ${KUBECONFORM_VERSION} (${os}/${arch}) =="
 curl -fsSL -o "${tmp_dir}/kubeconform.tar.gz" \
   "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/${KUBECONFORM_ASSET}"
-echo "${KUBECONFORM_SHA256}  ${tmp_dir}/kubeconform.tar.gz" | shasum -a 256 -c -
+verify_sha256 "${KUBECONFORM_SHA256}" "${tmp_dir}/kubeconform.tar.gz"
 tar -xzf "${tmp_dir}/kubeconform.tar.gz" -C "${tmp_dir}" kubeconform
 chmod +x "${tmp_dir}/kubeconform"
 install_bin "${tmp_dir}/kubeconform" "${INSTALL_DIR}/kubeconform"

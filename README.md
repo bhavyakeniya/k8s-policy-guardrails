@@ -27,7 +27,7 @@ record. This README states only the resulting current behavior.
 | Deny `hostNetwork` / `hostPID` / `hostIPC` | `policy/deny_host_namespaces.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require non-root containers, including cross-checking `runAsUser: 0` against `runAsNonRoot` at both pod and container level | `policy/require_non_root.rego` | CIS Kubernetes Benchmark, Pod Security Policies section |
 | Require positive, syntactically valid Kubernetes Quantity CPU/memory limits (manifest hygiene, not resource governance - see Known limitations) | `policy/require_resource_limits.rego` | Kubernetes security checklist (resource-management guidance) |
-| Workload Identity annotation format (not full wiring) | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene) |
+| GCP static-key hardening: bans file-based ADC (`GOOGLE_APPLICATION_CREDENTIALS`) outright; flags suspicious Secret references by name across volumes (direct and projected, including `items[].key`/`items[].path`) *and* environment variables (`secretKeyRef`/`secretRef`); validates the Workload Identity annotation's format (not full wiring, see below) | `policy/deny_static_gcp_key.rego` | CIS Google Cloud Platform Benchmark (service-account key hygiene) |
 | Reject collection-shaped input (`List`, `PodList`, `DeploymentList`, ...) | `policy/reject_list_input.rego` | Internal guardrail - no external standard |
 
 CIS control numbers are intentionally not cited - see review history for why.
