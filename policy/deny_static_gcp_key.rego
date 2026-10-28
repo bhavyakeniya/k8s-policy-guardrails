@@ -33,13 +33,13 @@ static_key_name_patterns := ["gcp-key", "service-account-key", "sa-key", "key.js
 # Secret names from both volume shapes Kubernetes supports: a direct
 # Secret volume (volume.secret.secretName) and a projected volume
 # (volume.projected.sources[].secret.name).
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	name := volume.secret.secretName
 }
 
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	source := volume.projected.sources[_]
@@ -50,7 +50,7 @@ secret_volume_names contains name if {
 # explicit mount path - that path is a visible filename in the manifest,
 # not hidden Secret content, so it gets the same naming check as the
 # Secret's own name.
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	item := volume.secret.items[_]
@@ -68,14 +68,14 @@ basename(path) := result if {
 	result := parts[count(parts) - 1]
 }
 
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	item := volume.secret.items[_]
 	name := basename(item.path)
 }
 
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	source := volume.projected.sources[_]
@@ -83,12 +83,36 @@ secret_volume_names contains name if {
 	name := item.key
 }
 
-secret_volume_names contains name if {
+secret_reference_names contains name if {
 	spec := common.all_pod_specs[_]
 	volume := spec.volumes[_]
 	source := volume.projected.sources[_]
 	item := source.secret.items[_]
 	name := basename(item.path)
+}
+
+# A Secret doesn't have to come in through a volume at all - Kubernetes
+# also supports injecting one directly as an environment variable, via
+# either a single key (env[].valueFrom.secretKeyRef) or every key at once
+# (envFrom[].secretRef). Both the Secret's own name and, for secretKeyRef,
+# the specific key referenced get the same naming check as a volume-based
+# reference.
+secret_reference_names contains name if {
+	container := common.security_relevant_containers[_]
+	env := container.env[_]
+	name := env.valueFrom.secretKeyRef.name
+}
+
+secret_reference_names contains name if {
+	container := common.security_relevant_containers[_]
+	env := container.env[_]
+	name := env.valueFrom.secretKeyRef.key
+}
+
+secret_reference_names contains name if {
+	container := common.security_relevant_containers[_]
+	envFrom := container.envFrom[_]
+	name := envFrom.secretRef.name
 }
 
 # Token-boundary matched, not a plain substring: "(^|[-._])pattern([-._]|$)"
@@ -100,7 +124,7 @@ secret_volume_names contains name if {
 # of names, not of (name, pattern) pairs, so a name matching several
 # patterns at once (e.g. "gcp-key.json") still produces one violation.
 suspicious_secret_names contains name if {
-	name := secret_volume_names[_]
+	name := secret_reference_names[_]
 	pattern := static_key_name_patterns[_]
 	escaped_pattern := regex.replace(pattern, `\.`, `\.`)
 	regex.match(sprintf(`(^|[-._])%s([-._]|$)`, [escaped_pattern]), lower(name))
@@ -108,7 +132,7 @@ suspicious_secret_names contains name if {
 
 deny contains msg if {
 	name := suspicious_secret_names[_]
-	msg := sprintf("%s/%s: a volume references %q (as a Secret name, an items[].key, or an items[].path), matching a static-key naming pattern; use Workload Identity Federation instead of a static key", [input.kind, common.name, name])
+	msg := sprintf("%s/%s: a volume or environment variable references %q (as a Secret name, an items[].key, an items[].path, or a secretKeyRef/secretRef key), matching a static-key naming pattern; use Workload Identity Federation instead of a static key", [input.kind, common.name, name])
 }
 
 # Deliberately checks for a malformed annotation, not a missing one.

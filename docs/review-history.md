@@ -288,3 +288,9 @@ checks: every `policies.*` package name derived from `policy/*.rego` (not hardco
 must appear as a mapped namespace, and every file actually present in a new
 `--fail-dir` argument must appear as a `--map` key. Re-verified the omitted-mapping
 scenario now fails loudly, and that the complete, correct mapping still passes clean.
+
+---
+
+This file is a point-in-time snapshot, not a living log kept in sync with every
+subsequent fix - the commit history is the record going forward, not another section
+appended here per fix.

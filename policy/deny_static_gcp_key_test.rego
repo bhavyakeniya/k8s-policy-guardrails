@@ -152,6 +152,69 @@ test_underscore_delimited_key_denied if {
 	count(deny) > 0 with input as mock_input
 }
 
+# Confirmed as a real bypass before env/envFrom secret references were
+# inspected: Kubernetes officially supports injecting a Secret via
+# secretKeyRef/secretRef, not only through a volume.
+test_env_secret_key_ref_name_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {"containers": [{"name": "app", "env": [{"name": "X", "valueFrom": {"secretKeyRef": {"name": "prod-gcp-key", "key": "irrelevant"}}}]}]},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_env_secret_key_ref_key_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {"containers": [{"name": "app", "env": [{"name": "X", "valueFrom": {"secretKeyRef": {"name": "db-creds", "key": "service-account-key.json"}}}]}]},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_envfrom_secret_ref_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {"containers": [{"name": "app", "envFrom": [{"secretRef": {"name": "service-account-key"}}]}]},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_init_container_env_secret_key_ref_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"initContainers": [{"name": "init-app", "env": [{"name": "X", "valueFrom": {"secretKeyRef": {"name": "prod-gcp-key", "key": "irrelevant"}}}]}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_ephemeral_container_envfrom_secret_ref_denied if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "bad-pod"},
+		"spec": {
+			"containers": [{"name": "app"}],
+			"ephemeralContainers": [{"name": "debug", "envFrom": [{"secretRef": {"name": "service-account-key"}}]}],
+		},
+	}
+	count(deny) > 0 with input as mock_input
+}
+
+test_env_secret_ref_without_suspicious_name_allowed if {
+	mock_input := {
+		"kind": "Pod",
+		"metadata": {"name": "good-pod"},
+		"spec": {"containers": [{"name": "app", "env": [{"name": "X", "valueFrom": {"secretKeyRef": {"name": "db-creds", "key": "username"}}}]}]},
+	}
+	count(deny) == 0 with input as mock_input
+}
+
 test_secret_items_without_suspicious_names_allowed if {
 	mock_input := {
 		"kind": "Pod",

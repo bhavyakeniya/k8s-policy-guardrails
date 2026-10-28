@@ -23,6 +23,11 @@ echo "== checking installed tool versions against scripts/tool-versions.sh =="
 check_version opa "$(opa version | awk '/^Version:/ {print $2}')" "${OPA_VERSION}"
 check_version conftest "$(conftest --version | awk '/^Conftest:/ {print $2}')" "${CONFTEST_VERSION}"
 check_version kubeconform "$(kubeconform -v | sed 's/^v//')" "${KUBECONFORM_VERSION}"
+# conftest embeds its own OPA engine, independent of the standalone opa
+# binary pinned above - that embedded engine is what actually evaluates
+# every policy in the fixture-coverage gate below, so it gets checked
+# explicitly too rather than left implicit.
+check_version "conftest's embedded OPA" "$(conftest --version | awk '/^OPA:/ {print $2}')" "${CONFTEST_EMBEDDED_OPA_VERSION}"
 
 echo "== kubeconform (structural schema validation) =="
 kubeconform -summary -strict \

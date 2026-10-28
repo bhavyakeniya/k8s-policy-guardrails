@@ -96,18 +96,26 @@ pod specs across Pod/Deployment/StatefulSet/DaemonSet/Job/CronJob shapes) live o
 ## Quick start
 
 ```bash
-brew install opa conftest kubeconform
-
+./scripts/install-tools.sh   # checksum-verified opa/conftest/kubeconform, exact pinned versions
 ./scripts/verify.sh
 ```
+
+`brew install opa conftest kubeconform` installs whatever Homebrew's current
+formulas happen to be, not this repo's pinned versions - Homebrew moved from 1.21.3 to
+1.21.4 while this sentence was being tested, which is exactly the drift
+`scripts/install-tools.sh` exists to avoid. It downloads the exact versions in
+`scripts/tool-versions.sh`, verifies each against a checksum, and installs to
+`/usr/local/bin` (or `INSTALL_DIR` if set, skipping `sudo` when that directory is
+already writable).
 
 `scripts/verify.sh` is the single entry point both local dev and CI use - CI's
 workflow calls exactly this script, running every gate (kubeconform, `opa fmt`,
 `opa check --strict`, the coverage threshold, the exact-fixture assertion), not just
 `opa test`. It also checks the installed `opa`/`conftest`/`kubeconform` versions
-against `scripts/tool-versions.sh` - the single file both this script and CI read -
-and fails loudly on a mismatch, since "passed locally" and "passed in CI" only mean
-the same thing if the tool versions actually match.
+against `scripts/tool-versions.sh` and fails loudly on a mismatch - including
+conftest's own *embedded* OPA engine (1.21.1, independent of the standalone `opa`
+binary pinned to 1.21.3), since that embedded engine is the one actually evaluating
+every policy in the fixture-coverage gate.
 
 To check a single manifest directly:
 
@@ -137,6 +145,7 @@ examples/
   pass/                           # manifests that must pass every policy
   reference/                      # illustrative only - schema-checked by kubeconform, no policy assertions
 scripts/
+  install-tools.sh                # checksum-verified opa/conftest/kubeconform bootstrap, exact pinned versions
   verify.sh                       # the one entry point local dev and CI both run
   tool-versions.sh                # single source of truth for pinned versions/checksums
   assert_policy_coverage.py       # asserts exact namespace per fixture, and completeness
